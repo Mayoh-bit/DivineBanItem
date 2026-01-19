@@ -40,6 +40,7 @@ DivineBanItem 是一款面向 Mohist 1.20.1 混合端的物品管控插件，核
 - 深度层（Mohist 优先）：尽可能从底层 RecipeManager 移除输出为目标物品的配方，用于覆盖 Forge 模组配方
 
 说明：
+- 配方删除为可选功能，默认不删除。需要在 `settings.remove-bukkit-recipes-on-load` 设为 `true` 后才会执行 Bukkit 配方删除。
 - 深度移除属于 best effort 行为，混合端对配方暴露与底层结构可能随版本变化。
 - 插件会输出移除统计与失败原因，便于升级整合包后回归测试。
 
