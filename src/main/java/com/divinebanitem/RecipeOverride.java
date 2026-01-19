@@ -90,6 +90,48 @@ public class RecipeOverride {
         return shapelessRecipe;
     }
 
+    public Map<String, Object> toMap() {
+        Map<String, Object> data = new HashMap<>();
+        data.put("key", key);
+        data.put("type", type.name());
+        Map<String, Object> resultMap = new HashMap<>();
+        resultMap.put("key", ItemKeyUtils.getItemKey(result));
+        resultMap.put("amount", result == null ? 1 : result.getAmount());
+        String resultSnbt = result == null ? "" : NbtUtils.getSnbt(result);
+        if (resultSnbt != null && !resultSnbt.isBlank()) {
+            resultMap.put("snbt", resultSnbt);
+        }
+        data.put("result", resultMap);
+        if (type == Type.SHAPED) {
+            data.put("shape", new ArrayList<>(shape));
+            Map<String, Object> ingredientData = new HashMap<>();
+            for (Map.Entry<Character, Ingredient> entry : ingredientMap.entrySet()) {
+                Ingredient ingredient = entry.getValue();
+                Map<String, Object> map = new HashMap<>();
+                map.put("key", ingredient.getKey());
+                map.put("amount", ingredient.getAmount());
+                if (ingredient.getSnbt() != null && !ingredient.getSnbt().isBlank()) {
+                    map.put("snbt", ingredient.getSnbt());
+                }
+                ingredientData.put(entry.getKey().toString(), map);
+            }
+            data.put("ingredients", ingredientData);
+        } else {
+            List<Map<String, Object>> ingredientList = new ArrayList<>();
+            for (Ingredient ingredient : ingredients) {
+                Map<String, Object> map = new HashMap<>();
+                map.put("key", ingredient.getKey());
+                map.put("amount", ingredient.getAmount());
+                if (ingredient.getSnbt() != null && !ingredient.getSnbt().isBlank()) {
+                    map.put("snbt", ingredient.getSnbt());
+                }
+                ingredientList.add(map);
+            }
+            data.put("ingredients", ingredientList);
+        }
+        return data;
+    }
+
     private RecipeChoice toChoice(Ingredient ingredient) {
         ItemStack item = ItemKeyUtils.createItemStack(ingredient.getKey(), ingredient.getAmount());
         if (item == null) {

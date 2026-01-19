@@ -1,5 +1,7 @@
 package com.divinebanitem;
 
+import java.io.File;
+import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
@@ -9,6 +11,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
+import java.util.stream.Collectors;
 import org.bukkit.Bukkit;
 import org.bukkit.configuration.ConfigurationSection;
 import org.bukkit.configuration.file.FileConfiguration;
@@ -18,8 +21,16 @@ import org.bukkit.inventory.Recipe;
 public class BanRuleManager {
     private final Map<String, BanRule> rules = new HashMap<>();
     private final List<RecipeOverride> overrides = new ArrayList<>();
+    private final File configFile;
+    private FileConfiguration config;
+
+    public BanRuleManager(FileConfiguration config, File configFile) {
+        this.config = config;
+        this.configFile = configFile;
+    }
 
     public void load(FileConfiguration config) {
+        this.config = config;
         rules.clear();
         overrides.clear();
         ConfigurationSection entries = config.getConfigurationSection("entries");
@@ -129,6 +140,23 @@ public class BanRuleManager {
 
     public List<RecipeOverride> getOverrides() {
         return Collections.unmodifiableList(overrides);
+    }
+
+    public boolean addOverrideAndPersist(RecipeOverride override) {
+        overrides.add(override);
+        if (config == null || configFile == null) {
+            return false;
+        }
+        List<Map<String, Object>> data = overrides.stream()
+            .map(RecipeOverride::toMap)
+            .collect(Collectors.toList());
+        config.set("recipeOverrides", data);
+        try {
+            config.save(configFile);
+            return true;
+        } catch (IOException ignored) {
+            return false;
+        }
     }
 
     public int removeBukkitRecipesFor(ItemStack stack) {
