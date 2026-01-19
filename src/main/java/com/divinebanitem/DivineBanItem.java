@@ -32,9 +32,12 @@ import org.bukkit.event.block.BlockPlaceEvent;
 import org.bukkit.event.entity.EntityPickupItemEvent;
 import org.bukkit.event.inventory.InventoryClickEvent;
 import org.bukkit.event.inventory.InventoryCloseEvent;
+import org.bukkit.event.inventory.InventoryCreativeEvent;
 import org.bukkit.event.inventory.InventoryDragEvent;
 import org.bukkit.event.inventory.CraftItemEvent;
 import org.bukkit.event.inventory.FurnaceSmeltEvent;
+import org.bukkit.event.inventory.InventoryAction;
+import org.bukkit.event.inventory.ClickType;
 import org.bukkit.event.inventory.PrepareItemCraftEvent;
 import org.bukkit.event.player.PlayerDropItemEvent;
 import org.bukkit.event.player.PlayerInteractEvent;
@@ -53,6 +56,7 @@ public class DivineBanItem extends JavaPlugin implements Listener {
     private String bypassPermission;
     private final Map<UUID, RecipeEditorSession> recipeEditors = new HashMap<>();
     private final Map<UUID, Inventory> adminInventories = new HashMap<>();
+    private final Map<UUID, Map<Integer, String>> adminRuleSlots = new HashMap<>();
     private final Map<UUID, Inventory> listInventories = new HashMap<>();
     private final Map<UUID, Integer> listPages = new HashMap<>();
     private final Map<UUID, BanHandWizardSession> banHandSessions = new HashMap<>();
@@ -160,6 +164,8 @@ public class DivineBanItem extends JavaPlugin implements Listener {
         switch (sub) {
             case "banhand":
                 return handleBanHand(sender);
+            case "removehand":
+                return handleRemoveHand(sender);
             case "gui":
                 return handleGui(sender);
             case "reload":
@@ -186,8 +192,8 @@ public class DivineBanItem extends JavaPlugin implements Listener {
 
     private List<String> handleTabComplete(CommandSender sender, Command command, String alias, String[] args) {
         if (args.length == 1) {
-            List<String> subs = List.of("help", "banhand", "gui", "reload", "nbt", "list", "info", "buy", "grant",
-                "revoke", "recipe");
+            List<String> subs = List.of("help", "banhand", "removehand", "gui", "reload", "nbt", "list", "info",
+                "buy", "grant", "revoke", "recipe");
             return subs.stream()
                 .filter(entry -> entry.startsWith(args[0].toLowerCase(Locale.ROOT)))
                 .collect(Collectors.toList());
@@ -224,6 +230,7 @@ public class DivineBanItem extends JavaPlugin implements Listener {
         sender.sendMessage(MessageService.colorize("&3DivineBanItem &7指令列表:"));
         sender.sendMessage(MessageService.colorize("&b/dbi help &7- 查看帮助"));
         sender.sendMessage(MessageService.colorize("&b/dbi banhand &7- 引导封禁手持物品"));
+        sender.sendMessage(MessageService.colorize("&b/dbi removehand &7- 解除手持物品封禁"));
         sender.sendMessage(MessageService.colorize("&b/dbi gui &7- 打开管理物品箱"));
         sender.sendMessage(MessageService.colorize("&b/dbi reload &7- 重载配置"));
         sender.sendMessage(MessageService.colorize("&b/dbi nbt &7- 查看手持物品 NBT"));
@@ -271,10 +278,35 @@ public class DivineBanItem extends JavaPlugin implements Listener {
             return true;
         }
         Player player = (Player) sender;
-        Inventory inventory = Bukkit.createInventory(player, 54, MessageService.colorize("&3DivineBanItem 管理"));
-        inventory.setItem(ADMIN_SAVE_SLOT, createSaveButton());
-        adminInventories.put(player.getUniqueId(), inventory);
-        player.openInventory(inventory);
+        openAdminInventory(player);
+        return true;
+    }
+
+    private boolean handleRemoveHand(CommandSender sender) {
+        if (!sender.hasPermission("divinebanitem.admin")) {
+            messages.send(sender, "no-permission");
+            return true;
+        }
+        if (!(sender instanceof Player)) {
+            messages.send(sender, "player-only");
+            return true;
+        }
+        Player player = (Player) sender;
+        ItemStack stack = player.getInventory().getItemInMainHand();
+        if (stack == null || stack.getType() == Material.AIR) {
+            messages.send(player, "banhand-hold-item");
+            return true;
+        }
+        BanRule rule = ruleManager.match(stack);
+        if (rule == null) {
+            messages.send(player, "removehand-no-match");
+            return true;
+        }
+        if (!removeRule(rule.getKey())) {
+            messages.send(player, "removehand-failed");
+            return true;
+        }
+        messages.send(player, "removehand-removed", Map.of("key", rule.getKey()));
         return true;
     }
 
@@ -570,14 +602,52 @@ public class DivineBanItem extends JavaPlugin implements Listener {
             return;
         }
         int slot = event.getRawSlot();
+        Map<Integer, String> ruleSlots = adminRuleSlots.getOrDefault(player.getUniqueId(), Map.of());
         if (slot == ADMIN_SAVE_SLOT) {
             event.setCancelled(true);
-            saveAdminInventory(player, adminInventory);
+            saveAdminInventory(player, adminInventory, ruleSlots);
+            return;
+        }
+        if (slot < adminInventory.getSize() && ruleSlots.containsKey(slot)) {
+            event.setCancelled(true);
+            event.setResult(org.bukkit.event.Event.Result.DENY);
+            if (event.getClick() == ClickType.DOUBLE_CLICK) {
+                String key = ruleSlots.get(slot);
+                if (removeRule(key)) {
+                    messages.send(player, "admin-remove-success", Map.of("key", key));
+                    openAdminInventory(player);
+                } else {
+                    messages.send(player, "admin-remove-failed", Map.of("key", key));
+                }
+            }
             return;
         }
         if (slot < adminInventory.getSize() && adminInventory.getItem(ADMIN_SAVE_SLOT) != null
             && event.getCurrentItem() != null && event.getCurrentItem().isSimilar(adminInventory.getItem(ADMIN_SAVE_SLOT))) {
             event.setCancelled(true);
+        }
+    }
+
+    @EventHandler
+    public void onInventoryCreative(InventoryCreativeEvent event) {
+        if (!(event.getWhoClicked() instanceof Player)) {
+            return;
+        }
+        Player player = (Player) event.getWhoClicked();
+        Inventory listInventory = listInventories.get(player.getUniqueId());
+        if (listInventory != null && event.getView().getTopInventory().equals(listInventory)) {
+            event.setCancelled(true);
+            event.setResult(org.bukkit.event.Event.Result.DENY);
+            return;
+        }
+        Inventory adminInventory = adminInventories.get(player.getUniqueId());
+        if (adminInventory != null && event.getView().getTopInventory().equals(adminInventory)) {
+            int slot = event.getSlot();
+            Map<Integer, String> ruleSlots = adminRuleSlots.getOrDefault(player.getUniqueId(), Map.of());
+            if (slot >= 0 && slot < adminInventory.getSize() && ruleSlots.containsKey(slot)) {
+                event.setCancelled(true);
+                event.setResult(org.bukkit.event.Event.Result.DENY);
+            }
         }
     }
 
@@ -596,7 +666,9 @@ public class DivineBanItem extends JavaPlugin implements Listener {
         if (adminInventory == null || !event.getView().getTopInventory().equals(adminInventory)) {
             return;
         }
-        if (event.getRawSlots().contains(ADMIN_SAVE_SLOT)) {
+        Map<Integer, String> ruleSlots = adminRuleSlots.getOrDefault(player.getUniqueId(), Map.of());
+        if (event.getRawSlots().contains(ADMIN_SAVE_SLOT)
+            || event.getRawSlots().stream().anyMatch(ruleSlots::containsKey)) {
             event.setCancelled(true);
         }
     }
@@ -619,13 +691,15 @@ public class DivineBanItem extends JavaPlugin implements Listener {
         }
         if (adminInventorySaving.remove(player.getUniqueId())) {
             adminInventories.remove(player.getUniqueId());
+            adminRuleSlots.remove(player.getUniqueId());
             return;
         }
-        returnItems(player, adminInventory);
+        returnItems(player, adminInventory, adminRuleSlots.getOrDefault(player.getUniqueId(), Map.of()));
         adminInventories.remove(player.getUniqueId());
+        adminRuleSlots.remove(player.getUniqueId());
     }
 
-    private void saveAdminInventory(Player player, Inventory inventory) {
+    private void saveAdminInventory(Player player, Inventory inventory, Map<Integer, String> ruleSlots) {
         FileConfiguration config = getConfig();
         ConfigurationSection entries = config.getConfigurationSection("entries");
         if (entries == null) {
@@ -633,7 +707,7 @@ public class DivineBanItem extends JavaPlugin implements Listener {
         }
         int saved = 0;
         for (int i = 0; i < inventory.getSize(); i++) {
-            if (i == ADMIN_SAVE_SLOT) {
+            if (i == ADMIN_SAVE_SLOT || ruleSlots.containsKey(i)) {
                 continue;
             }
             ItemStack item = inventory.getItem(i);
@@ -656,15 +730,15 @@ public class DivineBanItem extends JavaPlugin implements Listener {
             return;
         }
         reloadPlugin();
-        returnItems(player, inventory);
+        returnItems(player, inventory, ruleSlots);
         adminInventorySaving.add(player.getUniqueId());
         player.sendMessage(MessageService.colorize("&a已保存 " + saved + " 条封禁配置。"));
         player.closeInventory();
     }
 
-    private void returnItems(Player player, Inventory inventory) {
+    private void returnItems(Player player, Inventory inventory, Map<Integer, String> ruleSlots) {
         for (int i = 0; i < inventory.getSize(); i++) {
-            if (i == ADMIN_SAVE_SLOT) {
+            if (i == ADMIN_SAVE_SLOT || ruleSlots.containsKey(i)) {
                 continue;
             }
             ItemStack item = inventory.getItem(i);
@@ -1077,6 +1151,13 @@ public class DivineBanItem extends JavaPlugin implements Listener {
 
     private void handleListInventoryClick(InventoryClickEvent event, Player player) {
         event.setCancelled(true);
+        event.setResult(org.bukkit.event.Event.Result.DENY);
+        if (event.getAction() == InventoryAction.MOVE_TO_OTHER_INVENTORY
+            || event.getAction() == InventoryAction.HOTBAR_MOVE_AND_READD
+            || event.getAction() == InventoryAction.HOTBAR_SWAP
+            || event.getAction() == InventoryAction.COLLECT_TO_CURSOR) {
+            player.updateInventory();
+        }
         int slot = event.getRawSlot();
         int page = listPages.getOrDefault(player.getUniqueId(), 0);
         if (slot == LIST_PREV_SLOT) {
@@ -1086,6 +1167,27 @@ public class DivineBanItem extends JavaPlugin implements Listener {
         if (slot == LIST_NEXT_SLOT) {
             openListInventory(player, page + 1);
         }
+    }
+
+    private void openAdminInventory(Player player) {
+        Inventory inventory = Bukkit.createInventory(player, 54, MessageService.colorize("&3DivineBanItem 管理"));
+        inventory.setItem(ADMIN_SAVE_SLOT, createSaveButton());
+        List<BanRule> rules = ruleManager.getRules().stream()
+            .sorted(java.util.Comparator.comparing(BanRule::getKey))
+            .collect(Collectors.toList());
+        Map<Integer, String> ruleSlots = new HashMap<>();
+        int slot = 0;
+        for (BanRule rule : rules) {
+            if (slot == ADMIN_SAVE_SLOT) {
+                break;
+            }
+            inventory.setItem(slot, buildAdminRuleDisplay(rule));
+            ruleSlots.put(slot, rule.getKey());
+            slot++;
+        }
+        adminInventories.put(player.getUniqueId(), inventory);
+        adminRuleSlots.put(player.getUniqueId(), ruleSlots);
+        player.openInventory(inventory);
     }
 
     private ItemStack buildRuleDisplay(BanRule rule) {
@@ -1115,6 +1217,38 @@ public class DivineBanItem extends JavaPlugin implements Listener {
             item.setItemMeta(meta);
         }
         return item;
+    }
+
+    private ItemStack buildAdminRuleDisplay(BanRule rule) {
+        ItemStack item = buildRuleDisplay(rule);
+        ItemMeta meta = item.getItemMeta();
+        if (meta != null) {
+            List<String> lore = meta.getLore();
+            List<String> updated = new java.util.ArrayList<>();
+            if (lore != null) {
+                updated.addAll(lore);
+            }
+            updated.add(MessageService.colorize("&6双击移除该封禁"));
+            meta.setLore(updated);
+            item.setItemMeta(meta);
+        }
+        return item;
+    }
+
+    private boolean removeRule(String key) {
+        FileConfiguration config = getConfig();
+        ConfigurationSection entries = config.getConfigurationSection("entries");
+        if (entries == null || !entries.contains(key)) {
+            return false;
+        }
+        entries.set(key, null);
+        try {
+            config.save(new File(getDataFolder(), "config.yml"));
+        } catch (IOException ignored) {
+            return false;
+        }
+        reloadPlugin();
+        return true;
     }
 
     private ItemStack createNavItem(Material material, String name) {
