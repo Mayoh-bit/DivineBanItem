@@ -14,6 +14,11 @@ import java.util.UUID;
 import java.util.stream.Collectors;
 import net.milkbowl.vault.economy.Economy;
 import net.milkbowl.vault.economy.EconomyResponse;
+import net.md_5.bungee.api.chat.BaseComponent;
+import net.md_5.bungee.api.chat.HoverEvent;
+import net.md_5.bungee.api.chat.TextComponent;
+import net.md_5.bungee.api.chat.hover.content.Item;
+import net.md_5.bungee.api.chat.hover.content.ItemTag;
 import org.bukkit.Bukkit;
 import org.bukkit.Material;
 import org.bukkit.command.Command;
@@ -81,6 +86,7 @@ public class DivineBanItem extends JavaPlugin implements Listener {
 
     @Override
     public void onEnable() {
+        logStartupBannerStart();
         saveDefaultConfig();
         saveResourceIfMissing("messages.yml");
         reloadPlugin();
@@ -92,6 +98,7 @@ public class DivineBanItem extends JavaPlugin implements Listener {
         }
 
         Bukkit.getPluginManager().registerEvents(this, this);
+        logStartupBannerSuccess();
     }
 
     private void reloadPlugin() {
@@ -359,17 +366,23 @@ public class DivineBanItem extends JavaPlugin implements Listener {
             messages.send(sender, "no-permission");
             return true;
         }
-        List<String> entries = ruleManager.getRules().stream()
+        List<BanRule> rules = ruleManager.getRules().stream()
             .sorted(java.util.Comparator.comparing(BanRule::getKey))
-            .map(rule -> MessageService.colorize("&f" + rule.getKey() + " &7- &b" + getRuleDisplayName(rule)))
             .collect(Collectors.toList());
-        if (entries.isEmpty()) {
+        if (rules.isEmpty()) {
             sender.sendMessage(MessageService.colorize("&7封禁条目: &8暂无"));
             return true;
         }
         sender.sendMessage(MessageService.colorize("&7封禁条目列表:"));
-        for (String line : entries) {
-            sender.sendMessage(line);
+        if (sender instanceof Player) {
+            Player player = (Player) sender;
+            for (BanRule rule : rules) {
+                player.spigot().sendMessage(buildListLine(rule));
+            }
+            return true;
+        }
+        for (BanRule rule : rules) {
+            sender.sendMessage(MessageService.colorize("&f" + rule.getKey() + " &7- &b" + getRuleDisplayName(rule)));
         }
         return true;
     }
@@ -1212,13 +1225,6 @@ public class DivineBanItem extends JavaPlugin implements Listener {
         if (item == null || item.getType() == Material.AIR) {
             return rule.getItemKey();
         }
-        ItemMeta meta = item.getItemMeta();
-        if (meta != null) {
-            String displayName = meta.getDisplayName();
-            if (displayName != null && !displayName.isBlank()) {
-                return displayName;
-            }
-        }
         return formatMaterialName(item.getType());
     }
 
@@ -1238,6 +1244,34 @@ public class DivineBanItem extends JavaPlugin implements Listener {
             }
         }
         return builder.toString();
+    }
+
+    private BaseComponent[] buildListLine(BanRule rule) {
+        TextComponent base = new TextComponent(MessageService.colorize("&f" + rule.getKey() + " &7- "));
+        TextComponent name = new TextComponent(MessageService.colorize("&b" + getRuleDisplayName(rule)));
+        ItemStack item = ItemKeyUtils.createItemStack(rule.getItemKey(), 1);
+        if (item != null && item.getType() != Material.AIR) {
+            String nbt = NbtUtils.getSnbt(item);
+            ItemTag tag = (nbt == null || nbt.isBlank()) ? null : ItemTag.ofNbt(nbt);
+            name.setHoverEvent(new HoverEvent(HoverEvent.Action.SHOW_ITEM,
+                new Item(item.getType().getKey().toString(), 1, tag)));
+        }
+        base.addExtra(name);
+        return new BaseComponent[] { base };
+    }
+
+    private void logStartupBannerStart() {
+        getLogger().info(MessageService.colorize("&b╔══════════════════════════════╗"));
+        getLogger().info(MessageService.colorize("&b║ &3DivineBanItem &7启动中...   &b║"));
+        getLogger().info(MessageService.colorize("&b║ &7Author: &dMAAAABG           &b║"));
+        getLogger().info(MessageService.colorize("&b╚══════════════════════════════╝"));
+    }
+
+    private void logStartupBannerSuccess() {
+        getLogger().info(MessageService.colorize("&a╔══════════════════════════════╗"));
+        getLogger().info(MessageService.colorize("&a║ &aDivineBanItem 加载成功!     &a║"));
+        getLogger().info(MessageService.colorize("&a║ &7Author: &dMAAAABG           &a║"));
+        getLogger().info(MessageService.colorize("&a╚══════════════════════════════╝"));
     }
 
     private ItemStack buildRuleDisplay(BanRule rule) {
