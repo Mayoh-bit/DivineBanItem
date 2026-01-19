@@ -17,8 +17,6 @@ import net.milkbowl.vault.economy.EconomyResponse;
 import net.md_5.bungee.api.chat.BaseComponent;
 import net.md_5.bungee.api.chat.HoverEvent;
 import net.md_5.bungee.api.chat.TextComponent;
-import net.md_5.bungee.api.chat.hover.content.Item;
-import net.md_5.bungee.api.chat.hover.content.ItemTag;
 import org.bukkit.Bukkit;
 import org.bukkit.Material;
 import org.bukkit.command.Command;
@@ -1252,9 +1250,13 @@ public class DivineBanItem extends JavaPlugin implements Listener {
         ItemStack item = ItemKeyUtils.createItemStack(rule.getItemKey(), 1);
         if (item != null && item.getType() != Material.AIR) {
             String nbt = NbtUtils.getSnbt(item);
-            ItemTag tag = (nbt == null || nbt.isBlank()) ? null : ItemTag.ofNbt(nbt);
-            name.setHoverEvent(new HoverEvent(HoverEvent.Action.SHOW_ITEM,
-                new Item(item.getType().getKey().toString(), 1, tag)));
+            StringBuilder hoverBuilder = new StringBuilder();
+            hoverBuilder.append("&7物品: &f").append(item.getType().getKey().toString());
+            if (nbt != null && !nbt.isBlank()) {
+                hoverBuilder.append("\n&7NBT: &f").append(nbt);
+            }
+            TextComponent hoverText = new TextComponent(MessageService.colorize(hoverBuilder.toString()));
+            name.setHoverEvent(new HoverEvent(HoverEvent.Action.SHOW_TEXT, new BaseComponent[] { hoverText }));
         }
         base.addExtra(name);
         return new BaseComponent[] { base };
