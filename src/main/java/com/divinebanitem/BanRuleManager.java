@@ -93,7 +93,8 @@ public class BanRuleManager {
                     }
                     purchase.durations = tiers;
                 }
-                rules.put(key, new BanRule(key, itemKey, nbtMode, nbtValue, nbtPath, actions, recipes, purchase));
+                String reason = section.getString("reason", "");
+                rules.put(key, new BanRule(key, itemKey, nbtMode, nbtValue, nbtPath, actions, recipes, purchase, reason));
             }
         }
 

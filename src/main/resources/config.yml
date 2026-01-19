@@ -4,6 +4,7 @@ settings:
   bypass-permission: divinebanitem.bypass.*
   remove-bukkit-recipes-on-load: false
   log-removal-summary: true
+  block-message-cooldown-ms: 2000
 
 entries:
   example_elytra:
@@ -31,5 +32,6 @@ entries:
       licenseEffect:
         allowUse: true
         allowCraft: false
+    reason: "示例封禁原因"
 
 recipeOverrides: []
