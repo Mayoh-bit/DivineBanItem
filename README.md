@@ -101,7 +101,17 @@ DivineBanItem 是一款面向 Mohist 1.20.1 混合端的物品管控插件，核
 - 管理员：
   - `/dbi grant <player> <key> [duration]`
   - `/dbi revoke <player> <key>`
+  - `/dbi recipe gui` 打开配方编辑 GUI（支持 `/dbi recipe add`）
   - `/dbi grant` / `/dbi revoke` 仅支持在线玩家目标（离线授权可直接编辑 licenses.yml）
+
+### 配方编辑 GUI
+
+管理员可通过 `/dbi recipe gui` 打开配方编辑器，直接在界面中定义覆写配方：
+
+- 上方 3x3 为材料格子，可放入任意物品（支持模组物品与 NBT）。
+- 中央输出格放入成品。
+- 右侧模式按钮切换「有序 / 无序」配方。
+- 点击保存后会生成新的 `recipeOverrides` 条目并写入配置，随后自动应用新的配方覆写。
 
 ## 权限
 

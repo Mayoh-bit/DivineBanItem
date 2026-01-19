@@ -6,6 +6,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
+import java.util.UUID;
 import java.util.stream.Collectors;
 import net.milkbowl.vault.economy.Economy;
 import net.milkbowl.vault.economy.EconomyResponse;
@@ -22,6 +23,9 @@ import org.bukkit.event.Listener;
 import org.bukkit.event.block.Action;
 import org.bukkit.event.block.BlockPlaceEvent;
 import org.bukkit.event.entity.EntityPickupItemEvent;
+import org.bukkit.event.inventory.InventoryClickEvent;
+import org.bukkit.event.inventory.InventoryCloseEvent;
+import org.bukkit.event.inventory.InventoryDragEvent;
 import org.bukkit.event.inventory.CraftItemEvent;
 import org.bukkit.event.inventory.FurnaceSmeltEvent;
 import org.bukkit.event.player.PlayerDropItemEvent;
@@ -37,6 +41,7 @@ public class DivineBanItem extends JavaPlugin implements Listener {
     private MessageService messages;
     private Economy economy;
     private String bypassPermission;
+    private final Map<UUID, RecipeEditorSession> recipeEditors = new java.util.HashMap<>();
 
     @Override
     public void onEnable() {
@@ -60,7 +65,7 @@ public class DivineBanItem extends JavaPlugin implements Listener {
         File messagesFile = new File(getDataFolder(), "messages.yml");
         FileConfiguration messageConfig = YamlConfiguration.loadConfiguration(messagesFile);
         this.messages = new MessageService(messageConfig);
-        this.ruleManager = new BanRuleManager();
+        this.ruleManager = new BanRuleManager(config, new File(getDataFolder(), "config.yml"));
         this.ruleManager.load(config);
         this.licenseStore = new LicenseStore(getDataFolder());
         setupEconomy();
@@ -146,6 +151,8 @@ public class DivineBanItem extends JavaPlugin implements Listener {
                 return handleGrant(sender, args);
             case "revoke":
                 return handleRevoke(sender, args);
+            case "recipe":
+                return handleRecipe(sender, args);
             default:
                 sendHelp(sender);
                 return true;
@@ -154,9 +161,15 @@ public class DivineBanItem extends JavaPlugin implements Listener {
 
     private List<String> handleTabComplete(CommandSender sender, Command command, String alias, String[] args) {
         if (args.length == 1) {
-            List<String> subs = List.of("help", "reload", "nbt", "list", "info", "buy", "grant", "revoke");
+            List<String> subs = List.of("help", "reload", "nbt", "list", "info", "buy", "grant", "revoke", "recipe");
             return subs.stream()
                 .filter(entry -> entry.startsWith(args[0].toLowerCase(Locale.ROOT)))
+                .collect(Collectors.toList());
+        }
+        if (args.length == 2 && args[0].equalsIgnoreCase("recipe")) {
+            List<String> subs = List.of("gui", "add");
+            return subs.stream()
+                .filter(entry -> entry.startsWith(args[1].toLowerCase(Locale.ROOT)))
                 .collect(Collectors.toList());
         }
         if (args.length == 2 && (args[0].equalsIgnoreCase("info") || args[0].equalsIgnoreCase("buy")
@@ -191,6 +204,7 @@ public class DivineBanItem extends JavaPlugin implements Listener {
         sender.sendMessage(MessageService.colorize("&e/dbi buy <key> [duration] &7- Buy license"));
         sender.sendMessage(MessageService.colorize("&e/dbi grant <player> <key> [duration] &7- Grant license"));
         sender.sendMessage(MessageService.colorize("&e/dbi revoke <player> <key> &7- Revoke license"));
+        sender.sendMessage(MessageService.colorize("&e/dbi recipe gui &7- Open recipe editor"));
     }
 
     private boolean handleReload(CommandSender sender) {
@@ -362,6 +376,27 @@ public class DivineBanItem extends JavaPlugin implements Listener {
         return true;
     }
 
+    private boolean handleRecipe(CommandSender sender, String[] args) {
+        if (!sender.hasPermission("divinebanitem.admin")) {
+            messages.send(sender, "no-permission");
+            return true;
+        }
+        if (!(sender instanceof Player)) {
+            messages.send(sender, "player-only");
+            return true;
+        }
+        String action = args.length >= 2 ? args[1].toLowerCase(Locale.ROOT) : "gui";
+        if (!action.equals("gui") && !action.equals("add")) {
+            sender.sendMessage(MessageService.colorize("&cUsage: /dbi recipe gui"));
+            return true;
+        }
+        Player player = (Player) sender;
+        RecipeEditorSession session = new RecipeEditorSession(player.getUniqueId());
+        recipeEditors.put(player.getUniqueId(), session);
+        player.openInventory(session.getInventory());
+        return true;
+    }
+
     private boolean canBypass(Player player) {
         return player.hasPermission(bypassPermission);
     }
@@ -485,6 +520,149 @@ public class DivineBanItem extends JavaPlugin implements Listener {
             messages.send(player, "blocked-drop");
             event.setCancelled(true);
         }
+    }
+
+    @EventHandler
+    public void onRecipeEditorClick(InventoryClickEvent event) {
+        if (!(event.getWhoClicked() instanceof Player)) {
+            return;
+        }
+        Player player = (Player) event.getWhoClicked();
+        RecipeEditorSession session = recipeEditors.get(player.getUniqueId());
+        if (session == null || !event.getView().getTopInventory().equals(session.getInventory())) {
+            return;
+        }
+        int slot = event.getRawSlot();
+        if (slot >= session.getInventory().getSize()) {
+            if (event.isShiftClick()) {
+                event.setCancelled(true);
+            }
+            return;
+        }
+        if (session.isControlSlot(slot)) {
+            event.setCancelled(true);
+            if (slot == RecipeEditorSession.MODE_SLOT) {
+                session.toggleType();
+                player.updateInventory();
+            } else if (slot == RecipeEditorSession.SAVE_SLOT) {
+                handleRecipeSave(player, session);
+            } else if (slot == RecipeEditorSession.CLOSE_SLOT) {
+                player.closeInventory();
+            }
+            return;
+        }
+        if (!RecipeEditorSession.INPUT_SLOTS.contains(slot) && slot != RecipeEditorSession.OUTPUT_SLOT) {
+            event.setCancelled(true);
+        }
+    }
+
+    @EventHandler
+    public void onRecipeEditorDrag(InventoryDragEvent event) {
+        if (!(event.getWhoClicked() instanceof Player)) {
+            return;
+        }
+        Player player = (Player) event.getWhoClicked();
+        RecipeEditorSession session = recipeEditors.get(player.getUniqueId());
+        if (session == null || !event.getView().getTopInventory().equals(session.getInventory())) {
+            return;
+        }
+        for (int slot : event.getRawSlots()) {
+            if (slot >= session.getInventory().getSize()) {
+                continue;
+            }
+            if (session.isControlSlot(slot)
+                || (!RecipeEditorSession.INPUT_SLOTS.contains(slot) && slot != RecipeEditorSession.OUTPUT_SLOT)) {
+                event.setCancelled(true);
+                return;
+            }
+        }
+    }
+
+    @EventHandler
+    public void onRecipeEditorClose(InventoryCloseEvent event) {
+        if (!(event.getPlayer() instanceof Player)) {
+            return;
+        }
+        Player player = (Player) event.getPlayer();
+        RecipeEditorSession session = recipeEditors.get(player.getUniqueId());
+        if (session != null && event.getInventory().equals(session.getInventory())) {
+            recipeEditors.remove(player.getUniqueId());
+        }
+    }
+
+    private void handleRecipeSave(Player player, RecipeEditorSession session) {
+        ItemStack result = session.getInventory().getItem(RecipeEditorSession.OUTPUT_SLOT);
+        if (result == null || result.getType() == Material.AIR) {
+            player.sendMessage(MessageService.colorize("&cPlace a result item in the output slot."));
+            return;
+        }
+        List<Integer> inputSlots = RecipeEditorSession.INPUT_SLOTS.stream().sorted().collect(Collectors.toList());
+        List<ItemStack> inputs = inputSlots.stream()
+            .map(slot -> session.getInventory().getItem(slot))
+            .collect(Collectors.toList());
+        boolean hasIngredient = inputs.stream().anyMatch(item -> item != null && item.getType() != Material.AIR);
+        if (!hasIngredient) {
+            player.sendMessage(MessageService.colorize("&cPlace at least one ingredient in the grid."));
+            return;
+        }
+        RecipeOverride override = buildOverride(session, result, inputs);
+        boolean saved = ruleManager.addOverrideAndPersist(override);
+        if (!saved) {
+            player.sendMessage(MessageService.colorize("&cFailed to save recipe override."));
+            return;
+        }
+        applyRecipeOverrides();
+        player.sendMessage(MessageService.colorize("&aRecipe override saved: &f" + override.getKey()));
+        player.closeInventory();
+    }
+
+    private RecipeOverride buildOverride(RecipeEditorSession session, ItemStack result, List<ItemStack> inputs) {
+        String baseKey = ItemKeyUtils.getItemKey(result).replace(":", "_");
+        String key = baseKey + "_" + System.currentTimeMillis();
+        ItemStack resultClone = result.clone();
+        RecipeOverride.Type type = session.getType();
+        if (type == RecipeOverride.Type.SHAPELESS) {
+            List<RecipeOverride.Ingredient> ingredients = inputs.stream()
+                .filter(item -> item != null && item.getType() != Material.AIR)
+                .map(this::toIngredient)
+                .collect(Collectors.toList());
+            return new RecipeOverride(key, type, resultClone, List.of(), ingredients, Map.of());
+        }
+        Map<String, Character> assignedSymbols = new java.util.LinkedHashMap<>();
+        Map<Character, RecipeOverride.Ingredient> ingredientMap = new java.util.LinkedHashMap<>();
+        List<String> shape = new java.util.ArrayList<>();
+        char nextSymbol = 'A';
+        for (int row = 0; row < 3; row++) {
+            StringBuilder line = new StringBuilder();
+            for (int col = 0; col < 3; col++) {
+                ItemStack item = inputs.get(row * 3 + col);
+                if (item == null || item.getType() == Material.AIR) {
+                    line.append(' ');
+                    continue;
+                }
+                String signature = buildSignature(item);
+                Character symbol = assignedSymbols.get(signature);
+                if (symbol == null) {
+                    symbol = nextSymbol++;
+                    assignedSymbols.put(signature, symbol);
+                    ingredientMap.put(symbol, toIngredient(item));
+                }
+                line.append(symbol);
+            }
+            shape.add(line.toString());
+        }
+        return new RecipeOverride(key, type, resultClone, shape, List.of(), ingredientMap);
+    }
+
+    private String buildSignature(ItemStack item) {
+        String snbt = NbtUtils.getSnbt(item);
+        return ItemKeyUtils.getItemKey(item) + "|" + item.getAmount() + "|" + snbt;
+    }
+
+    private RecipeOverride.Ingredient toIngredient(ItemStack item) {
+        String key = ItemKeyUtils.getItemKey(item);
+        String snbt = NbtUtils.getSnbt(item);
+        return new RecipeOverride.Ingredient(key, item.getAmount(), snbt);
     }
 
     private static final class ActionContext {
