@@ -23,6 +23,7 @@ import org.bukkit.configuration.ConfigurationSection;
 import org.bukkit.configuration.file.FileConfiguration;
 import org.bukkit.configuration.file.YamlConfiguration;
 import org.bukkit.entity.Player;
+import org.bukkit.entity.HumanEntity;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.Listener;
 import org.bukkit.event.block.Action;
@@ -33,6 +34,7 @@ import org.bukkit.event.inventory.InventoryCloseEvent;
 import org.bukkit.event.inventory.InventoryDragEvent;
 import org.bukkit.event.inventory.CraftItemEvent;
 import org.bukkit.event.inventory.FurnaceSmeltEvent;
+import org.bukkit.event.inventory.PrepareItemCraftEvent;
 import org.bukkit.event.player.PlayerDropItemEvent;
 import org.bukkit.event.player.PlayerInteractEvent;
 import org.bukkit.inventory.Inventory;
@@ -709,6 +711,23 @@ public class DivineBanItem extends JavaPlugin implements Listener {
         if (shouldBlock(player, stack, ActionContext.place())) {
             messages.send(player, "blocked-place");
             event.setCancelled(true);
+        }
+    }
+
+    @EventHandler
+    public void onPrepareCraft(PrepareItemCraftEvent event) {
+        ItemStack result = event.getInventory().getResult();
+        if (result == null || result.getType() == Material.AIR) {
+            return;
+        }
+        for (HumanEntity viewer : event.getViewers()) {
+            if (viewer instanceof Player) {
+                Player player = (Player) viewer;
+                if (shouldBlock(player, result, ActionContext.craft())) {
+                    event.getInventory().setResult(new ItemStack(Material.AIR));
+                    return;
+                }
+            }
         }
     }
 
