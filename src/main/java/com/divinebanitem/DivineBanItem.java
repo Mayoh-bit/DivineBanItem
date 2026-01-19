@@ -14,6 +14,11 @@ import java.util.UUID;
 import java.util.stream.Collectors;
 import net.milkbowl.vault.economy.Economy;
 import net.milkbowl.vault.economy.EconomyResponse;
+import net.md_5.bungee.api.chat.BaseComponent;
+import net.md_5.bungee.api.chat.HoverEvent;
+import net.md_5.bungee.api.chat.TextComponent;
+import net.md_5.bungee.api.chat.hover.content.Item;
+import net.md_5.bungee.api.chat.hover.content.ItemTag;
 import org.bukkit.Bukkit;
 import org.bukkit.Material;
 import org.bukkit.command.Command;
@@ -36,7 +41,6 @@ import org.bukkit.event.inventory.InventoryCreativeEvent;
 import org.bukkit.event.inventory.InventoryDragEvent;
 import org.bukkit.event.inventory.CraftItemEvent;
 import org.bukkit.event.inventory.FurnaceSmeltEvent;
-import org.bukkit.event.inventory.InventoryAction;
 import org.bukkit.event.inventory.ClickType;
 import org.bukkit.event.inventory.PrepareItemCraftEvent;
 import org.bukkit.event.player.PlayerDropItemEvent;
@@ -67,9 +71,22 @@ public class DivineBanItem extends JavaPlugin implements Listener {
     private static final int LIST_PREV_SLOT = 45;
     private static final int LIST_INFO_SLOT = 49;
     private static final int LIST_NEXT_SLOT = 53;
+    private static final String LIST_TITLE_PREFIX = "&3封禁物品列表";
+
+    private static final class ListInventoryHolder implements org.bukkit.inventory.InventoryHolder {
+        private ListInventoryHolder() {
+        }
+
+        @Override
+        public Inventory getInventory() {
+            return null;
+        }
+
+    }
 
     @Override
     public void onEnable() {
+        logStartupBannerStart();
         saveDefaultConfig();
         saveResourceIfMissing("messages.yml");
         reloadPlugin();
@@ -81,6 +98,7 @@ public class DivineBanItem extends JavaPlugin implements Listener {
         }
 
         Bukkit.getPluginManager().registerEvents(this, this);
+        logStartupBannerSuccess();
     }
 
     private void reloadPlugin() {
@@ -348,16 +366,24 @@ public class DivineBanItem extends JavaPlugin implements Listener {
             messages.send(sender, "no-permission");
             return true;
         }
-        if (!(sender instanceof Player)) {
-            List<String> keys = ruleManager.getRules().stream()
-                .map(BanRule::getKey)
-                .sorted()
-                .collect(Collectors.toList());
-            sender.sendMessage(MessageService.colorize("&7封禁条目: &f" + String.join(", ", keys)));
+        List<BanRule> rules = ruleManager.getRules().stream()
+            .sorted(java.util.Comparator.comparing(BanRule::getKey))
+            .collect(Collectors.toList());
+        if (rules.isEmpty()) {
+            sender.sendMessage(MessageService.colorize("&7封禁条目: &8暂无"));
             return true;
         }
-        Player player = (Player) sender;
-        openListInventory(player, 0);
+        sender.sendMessage(MessageService.colorize("&7封禁条目列表:"));
+        if (sender instanceof Player) {
+            Player player = (Player) sender;
+            for (BanRule rule : rules) {
+                player.spigot().sendMessage(buildListLine(rule));
+            }
+            return true;
+        }
+        for (BanRule rule : rules) {
+            sender.sendMessage(MessageService.colorize("&f" + rule.getKey() + " &7- &b" + getRuleDisplayName(rule)));
+        }
         return true;
     }
 
@@ -592,8 +618,7 @@ public class DivineBanItem extends JavaPlugin implements Listener {
             return;
         }
         Player player = (Player) event.getWhoClicked();
-        Inventory listInventory = listInventories.get(player.getUniqueId());
-        if (listInventory != null && event.getView().getTopInventory().equals(listInventory)) {
+        if (isListInventory(event.getView().getTopInventory(), player)) {
             handleListInventoryClick(event, player);
             return;
         }
@@ -634,10 +659,10 @@ public class DivineBanItem extends JavaPlugin implements Listener {
             return;
         }
         Player player = (Player) event.getWhoClicked();
-        Inventory listInventory = listInventories.get(player.getUniqueId());
-        if (listInventory != null && event.getView().getTopInventory().equals(listInventory)) {
+        if (isListInventory(event.getView().getTopInventory(), player)) {
             event.setCancelled(true);
             event.setResult(org.bukkit.event.Event.Result.DENY);
+            player.updateInventory();
             return;
         }
         Inventory adminInventory = adminInventories.get(player.getUniqueId());
@@ -657,9 +682,9 @@ public class DivineBanItem extends JavaPlugin implements Listener {
             return;
         }
         Player player = (Player) event.getWhoClicked();
-        Inventory listInventory = listInventories.get(player.getUniqueId());
-        if (listInventory != null && event.getView().getTopInventory().equals(listInventory)) {
+        if (isListInventory(event.getView().getTopInventory(), player)) {
             event.setCancelled(true);
+            player.updateInventory();
             return;
         }
         Inventory adminInventory = adminInventories.get(player.getUniqueId());
@@ -679,8 +704,7 @@ public class DivineBanItem extends JavaPlugin implements Listener {
             return;
         }
         Player player = (Player) event.getPlayer();
-        Inventory listInventory = listInventories.get(player.getUniqueId());
-        if (listInventory != null && event.getInventory().equals(listInventory)) {
+        if (isListInventory(event.getInventory(), player)) {
             listInventories.remove(player.getUniqueId());
             listPages.remove(player.getUniqueId());
             return;
@@ -1123,8 +1147,8 @@ public class DivineBanItem extends JavaPlugin implements Listener {
             .collect(Collectors.toList());
         int totalPages = Math.max(1, (int) Math.ceil(rules.size() / (double) LIST_PAGE_SIZE));
         int safePage = Math.max(0, Math.min(page, totalPages - 1));
-        Inventory inventory = Bukkit.createInventory(player, 54,
-            MessageService.colorize("&3封禁物品列表 &7(" + (safePage + 1) + "/" + totalPages + ")"));
+        Inventory inventory = Bukkit.createInventory(new ListInventoryHolder(), 54,
+            MessageService.colorize(LIST_TITLE_PREFIX + " &7(" + (safePage + 1) + "/" + totalPages + ")"));
         int startIndex = safePage * LIST_PAGE_SIZE;
         for (int slot = 0; slot < LIST_PAGE_SIZE; slot++) {
             int index = startIndex + slot;
@@ -1152,12 +1176,7 @@ public class DivineBanItem extends JavaPlugin implements Listener {
     private void handleListInventoryClick(InventoryClickEvent event, Player player) {
         event.setCancelled(true);
         event.setResult(org.bukkit.event.Event.Result.DENY);
-        if (event.getAction() == InventoryAction.MOVE_TO_OTHER_INVENTORY
-            || event.getAction() == InventoryAction.HOTBAR_MOVE_AND_READD
-            || event.getAction() == InventoryAction.HOTBAR_SWAP
-            || event.getAction() == InventoryAction.COLLECT_TO_CURSOR) {
-            player.updateInventory();
-        }
+        player.updateInventory();
         int slot = event.getRawSlot();
         int page = listPages.getOrDefault(player.getUniqueId(), 0);
         if (slot == LIST_PREV_SLOT) {
@@ -1167,6 +1186,17 @@ public class DivineBanItem extends JavaPlugin implements Listener {
         if (slot == LIST_NEXT_SLOT) {
             openListInventory(player, page + 1);
         }
+    }
+
+    private boolean isListInventory(Inventory inventory, Player player) {
+        if (inventory == null) {
+            return false;
+        }
+        if (inventory.getHolder() instanceof ListInventoryHolder) {
+            return true;
+        }
+        Inventory stored = listInventories.get(player.getUniqueId());
+        return stored != null && stored.equals(inventory);
     }
 
     private void openAdminInventory(Player player) {
@@ -1188,6 +1218,60 @@ public class DivineBanItem extends JavaPlugin implements Listener {
         adminInventories.put(player.getUniqueId(), inventory);
         adminRuleSlots.put(player.getUniqueId(), ruleSlots);
         player.openInventory(inventory);
+    }
+
+    private String getRuleDisplayName(BanRule rule) {
+        ItemStack item = ItemKeyUtils.createItemStack(rule.getItemKey(), 1);
+        if (item == null || item.getType() == Material.AIR) {
+            return rule.getItemKey();
+        }
+        return formatMaterialName(item.getType());
+    }
+
+    private String formatMaterialName(Material material) {
+        String raw = material.name().toLowerCase(Locale.ROOT).replace('_', ' ');
+        StringBuilder builder = new StringBuilder(raw.length());
+        boolean upperNext = true;
+        for (char c : raw.toCharArray()) {
+            if (upperNext && Character.isLetter(c)) {
+                builder.append(Character.toUpperCase(c));
+                upperNext = false;
+                continue;
+            }
+            builder.append(c);
+            if (c == ' ') {
+                upperNext = true;
+            }
+        }
+        return builder.toString();
+    }
+
+    private BaseComponent[] buildListLine(BanRule rule) {
+        TextComponent base = new TextComponent(MessageService.colorize("&f" + rule.getKey() + " &7- "));
+        TextComponent name = new TextComponent(MessageService.colorize("&b" + getRuleDisplayName(rule)));
+        ItemStack item = ItemKeyUtils.createItemStack(rule.getItemKey(), 1);
+        if (item != null && item.getType() != Material.AIR) {
+            String nbt = NbtUtils.getSnbt(item);
+            ItemTag tag = (nbt == null || nbt.isBlank()) ? null : ItemTag.ofNbt(nbt);
+            name.setHoverEvent(new HoverEvent(HoverEvent.Action.SHOW_ITEM,
+                new Item(item.getType().getKey().toString(), 1, tag)));
+        }
+        base.addExtra(name);
+        return new BaseComponent[] { base };
+    }
+
+    private void logStartupBannerStart() {
+        getLogger().info(MessageService.colorize("&b╔══════════════════════════════╗"));
+        getLogger().info(MessageService.colorize("&b║ &3DivineBanItem &7启动中...   &b║"));
+        getLogger().info(MessageService.colorize("&b║ &7Author: &dMAAAABG           &b║"));
+        getLogger().info(MessageService.colorize("&b╚══════════════════════════════╝"));
+    }
+
+    private void logStartupBannerSuccess() {
+        getLogger().info(MessageService.colorize("&a╔══════════════════════════════╗"));
+        getLogger().info(MessageService.colorize("&a║ &aDivineBanItem 加载成功!     &a║"));
+        getLogger().info(MessageService.colorize("&a║ &7Author: &dMAAAABG           &a║"));
+        getLogger().info(MessageService.colorize("&a╚══════════════════════════════╝"));
     }
 
     private ItemStack buildRuleDisplay(BanRule rule) {
