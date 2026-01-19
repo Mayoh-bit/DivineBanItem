@@ -43,7 +43,14 @@ public class BanRuleManager {
                 ConfigurationSection itemSection = section.getConfigurationSection("item");
                 String itemKey = itemSection == null ? "minecraft:air" : itemSection.getString("key", "minecraft:air");
                 String nbtModeRaw = itemSection == null ? "ANY" : itemSection.getString("nbtMode", "ANY");
-                BanRule.NbtMode nbtMode = BanRule.NbtMode.valueOf(nbtModeRaw.toUpperCase(Locale.ROOT));
+                BanRule.NbtMode nbtMode;
+                try {
+                    nbtMode = BanRule.NbtMode.valueOf(nbtModeRaw.toUpperCase(Locale.ROOT));
+                } catch (IllegalArgumentException ex) {
+                    Bukkit.getLogger().warning("Invalid nbtMode '" + nbtModeRaw + "' for entry '" + key
+                        + "', defaulting to ANY.");
+                    nbtMode = BanRule.NbtMode.ANY;
+                }
                 String nbtValue = itemSection == null ? "" : itemSection.getString("nbtValue", "");
                 String nbtPath = itemSection == null ? "" : itemSection.getString("nbtPath", "");
 
