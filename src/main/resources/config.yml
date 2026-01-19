@@ -2,7 +2,7 @@ settings:
   command-aliases:
     - divinebanitem
   bypass-permission: divinebanitem.bypass.*
-  remove-bukkit-recipes-on-load: true
+  remove-bukkit-recipes-on-load: false
   log-removal-summary: true
 
 entries:
@@ -20,7 +20,7 @@ entries:
       pickup: false
       drop: false
     recipes:
-      removeBukkit: true
+      removeBukkit: false
       removeForge: false
     purchase:
       enabled: false

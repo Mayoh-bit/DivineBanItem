@@ -87,6 +87,9 @@ public class DivineBanItem extends JavaPlugin implements Listener {
     }
 
     private void removeConfiguredRecipes() {
+        if (!getConfig().getBoolean("settings.remove-bukkit-recipes-on-load", false)) {
+            return;
+        }
         boolean logSummary = getConfig().getBoolean("settings.log-removal-summary", true);
         int removed = 0;
         for (BanRule rule : ruleManager.getRules()) {
