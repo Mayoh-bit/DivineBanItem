@@ -99,10 +99,19 @@ DivineBanItem 是一款面向 Mohist 1.20.1 混合端的物品管控插件，核
   - `duration` 缺省表示购买永久许可  
   - 示例：`/dbi buy botania_flower 7d`
 - 管理员：
+  - `/dbi banhand` 一键封禁手持物品
+  - `/dbi gui` 打开封禁管理 GUI（批量放入物品后保存）
   - `/dbi grant <player> <key> [duration]`
   - `/dbi revoke <player> <key>`
   - `/dbi recipe gui` 打开配方编辑 GUI（支持 `/dbi recipe add`）
   - `/dbi grant` / `/dbi revoke` 仅支持在线玩家目标（离线授权可直接编辑 licenses.yml）
+
+### 封禁管理 GUI
+
+管理员可通过 `/dbi gui` 打开封禁管理界面：
+
+- 放入需要封禁的物品（可批量放置）。
+- 点击右下角“保存封禁”按钮即可写入配置并自动重载。
 
 ### 配方编辑 GUI
 
