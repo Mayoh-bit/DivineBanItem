@@ -1,0 +1,30 @@
+name: DivineBanItem
+main: com.divinebanitem.DivineBanItem
+version: 1.0.0
+api-version: '1.20'
+author: DivineBanItem
+softdepend: [Vault]
+commands:
+  dbi:
+    description: DivineBanItem main command
+    usage: /<command> help
+    aliases: [divinebanitem]
+permissions:
+  divinebanitem.use:
+    description: Base command permission
+    default: true
+  divinebanitem.reload:
+    description: Reload config and messages
+    default: op
+  divinebanitem.nbt:
+    description: Query held item NBT
+    default: op
+  divinebanitem.buy:
+    description: Purchase license
+    default: true
+  divinebanitem.admin:
+    description: Admin commands
+    default: op
+  divinebanitem.bypass.*:
+    description: Bypass all bans
+    default: op
