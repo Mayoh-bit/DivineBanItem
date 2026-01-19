@@ -1,11 +1,16 @@
 package com.divinebanitem;
 
 import java.io.File;
+import java.io.IOException;
+import java.util.HashMap;
 import java.util.Collections;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
+import java.util.UUID;
+import java.util.HashSet;
 import java.util.stream.Collectors;
 import net.milkbowl.vault.economy.Economy;
 import net.milkbowl.vault.economy.EconomyResponse;
@@ -23,11 +28,15 @@ import org.bukkit.event.block.Action;
 import org.bukkit.event.block.BlockPlaceEvent;
 import org.bukkit.event.entity.EntityPickupItemEvent;
 import org.bukkit.event.inventory.CraftItemEvent;
+import org.bukkit.event.inventory.InventoryClickEvent;
+import org.bukkit.event.inventory.InventoryCloseEvent;
 import org.bukkit.event.inventory.FurnaceSmeltEvent;
 import org.bukkit.event.player.PlayerDropItemEvent;
 import org.bukkit.event.player.PlayerInteractEvent;
+import org.bukkit.inventory.Inventory;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.Recipe;
+import org.bukkit.inventory.meta.ItemMeta;
 import org.bukkit.plugin.RegisteredServiceProvider;
 import org.bukkit.plugin.java.JavaPlugin;
 
@@ -37,11 +46,18 @@ public class DivineBanItem extends JavaPlugin implements Listener {
     private MessageService messages;
     private Economy economy;
     private String bypassPermission;
+    private File configFile;
+    private final Map<UUID, Inventory> adminInventories = new HashMap<>();
+    private final Set<UUID> adminInventorySaved = new HashSet<>();
+    private static final String ADMIN_GUI_TITLE = "DivineBanItem - Ban GUI";
+    private static final int ADMIN_GUI_SIZE = 54;
+    private static final int ADMIN_GUI_SAVE_SLOT = 53;
 
     @Override
     public void onEnable() {
         saveDefaultConfig();
         saveResourceIfMissing("messages.yml");
+        this.configFile = new File(getDataFolder(), "config.yml");
         reloadPlugin();
 
         PluginCommand command = getCommand("dbi");
@@ -143,6 +159,10 @@ public class DivineBanItem extends JavaPlugin implements Listener {
                 return handleGrant(sender, args);
             case "revoke":
                 return handleRevoke(sender, args);
+            case "banhand":
+                return handleBanHand(sender);
+            case "gui":
+                return handleGui(sender);
             default:
                 sendHelp(sender);
                 return true;
@@ -151,7 +171,8 @@ public class DivineBanItem extends JavaPlugin implements Listener {
 
     private List<String> handleTabComplete(CommandSender sender, Command command, String alias, String[] args) {
         if (args.length == 1) {
-            List<String> subs = List.of("help", "reload", "nbt", "list", "info", "buy", "grant", "revoke");
+            List<String> subs = List.of("help", "reload", "nbt", "list", "info", "buy", "grant", "revoke", "banhand",
+                "gui");
             return subs.stream()
                 .filter(entry -> entry.startsWith(args[0].toLowerCase(Locale.ROOT)))
                 .collect(Collectors.toList());
@@ -188,6 +209,8 @@ public class DivineBanItem extends JavaPlugin implements Listener {
         sender.sendMessage(MessageService.colorize("&e/dbi buy <key> [duration] &7- Buy license"));
         sender.sendMessage(MessageService.colorize("&e/dbi grant <player> <key> [duration] &7- Grant license"));
         sender.sendMessage(MessageService.colorize("&e/dbi revoke <player> <key> &7- Revoke license"));
+        sender.sendMessage(MessageService.colorize("&e/dbi banhand &7- Ban held item"));
+        sender.sendMessage(MessageService.colorize("&e/dbi gui &7- Open ban GUI"));
     }
 
     private boolean handleReload(CommandSender sender) {
@@ -357,6 +380,146 @@ public class DivineBanItem extends JavaPlugin implements Listener {
         licenseStore.revoke(target.getUniqueId(), args[2]);
         messages.send(sender, "license-revoked", Map.of("key", args[2]));
         return true;
+    }
+
+    private boolean handleBanHand(CommandSender sender) {
+        if (!sender.hasPermission("divinebanitem.admin")) {
+            messages.send(sender, "no-permission");
+            return true;
+        }
+        if (!(sender instanceof Player)) {
+            messages.send(sender, "player-only");
+            return true;
+        }
+        Player player = (Player) sender;
+        ItemStack stack = player.getInventory().getItemInMainHand();
+        if (stack == null || stack.getType() == Material.AIR) {
+            messages.send(sender, "banhand-empty");
+            return true;
+        }
+        String key = ruleManager.resolveKey(stack, BanRule.NbtMode.ANY, "", "");
+        try {
+            BanRule rule = ruleManager.upsertRule(getConfig(), configFile, key, stack, BanRule.NbtMode.ANY, "", "");
+            messages.send(sender, "banhand-added", Map.of("key", rule.getKey(), "item", rule.getItemKey()));
+        } catch (IOException exception) {
+            getLogger().warning("Failed to save ban rule: " + exception.getMessage());
+            messages.send(sender, "banhand-failed");
+        }
+        return true;
+    }
+
+    private boolean handleGui(CommandSender sender) {
+        if (!sender.hasPermission("divinebanitem.admin")) {
+            messages.send(sender, "no-permission");
+            return true;
+        }
+        if (!(sender instanceof Player)) {
+            messages.send(sender, "player-only");
+            return true;
+        }
+        Player player = (Player) sender;
+        Inventory inventory = Bukkit.createInventory(player, ADMIN_GUI_SIZE, ADMIN_GUI_TITLE);
+        inventory.setItem(ADMIN_GUI_SAVE_SLOT, createSaveButton());
+        adminInventories.put(player.getUniqueId(), inventory);
+        adminInventorySaved.remove(player.getUniqueId());
+        player.openInventory(inventory);
+        messages.send(sender, "gui-opened");
+        return true;
+    }
+
+    private ItemStack createSaveButton() {
+        ItemStack item = new ItemStack(Material.EMERALD_BLOCK);
+        ItemMeta meta = item.getItemMeta();
+        if (meta != null) {
+            meta.setDisplayName(MessageService.colorize("&aSave ban entries"));
+            item.setItemMeta(meta);
+        }
+        return item;
+    }
+
+    @EventHandler
+    public void onInventoryClick(InventoryClickEvent event) {
+        if (!(event.getWhoClicked() instanceof Player)) {
+            return;
+        }
+        Player player = (Player) event.getWhoClicked();
+        Inventory inventory = adminInventories.get(player.getUniqueId());
+        if (inventory == null || !event.getView().getTopInventory().equals(inventory)) {
+            return;
+        }
+        if (event.getRawSlot() == ADMIN_GUI_SAVE_SLOT) {
+            event.setCancelled(true);
+            saveAdminInventory(player, inventory);
+            player.closeInventory();
+            return;
+        }
+        if (event.isShiftClick()) {
+            event.setCancelled(true);
+        }
+    }
+
+    @EventHandler
+    public void onInventoryClose(InventoryCloseEvent event) {
+        if (!(event.getPlayer() instanceof Player)) {
+            return;
+        }
+        Player player = (Player) event.getPlayer();
+        Inventory inventory = adminInventories.get(player.getUniqueId());
+        if (inventory == null || !event.getInventory().equals(inventory)) {
+            return;
+        }
+        saveAdminInventory(player, inventory);
+        adminInventories.remove(player.getUniqueId());
+        adminInventorySaved.remove(player.getUniqueId());
+    }
+
+    private void saveAdminInventory(Player player, Inventory inventory) {
+        UUID playerId = player.getUniqueId();
+        if (adminInventorySaved.contains(playerId)) {
+            return;
+        }
+        adminInventorySaved.add(playerId);
+        int saved = 0;
+        for (int slot = 0; slot < inventory.getSize(); slot++) {
+            if (slot == ADMIN_GUI_SAVE_SLOT) {
+                continue;
+            }
+            ItemStack stack = inventory.getItem(slot);
+            if (stack == null || stack.getType() == Material.AIR) {
+                continue;
+            }
+            String key = ruleManager.resolveKey(stack, BanRule.NbtMode.ANY, "", "");
+            try {
+                ruleManager.upsertRule(getConfig(), configFile, key, stack, BanRule.NbtMode.ANY, "", "");
+                saved++;
+            } catch (IOException exception) {
+                getLogger().warning("Failed to save ban rule: " + exception.getMessage());
+            }
+        }
+        returnItems(player, inventory);
+        if (saved > 0) {
+            messages.send(player, "gui-saved", Map.of("count", Integer.toString(saved)));
+        } else {
+            messages.send(player, "gui-empty");
+        }
+    }
+
+    private void returnItems(Player player, Inventory inventory) {
+        for (int slot = 0; slot < inventory.getSize(); slot++) {
+            if (slot == ADMIN_GUI_SAVE_SLOT) {
+                continue;
+            }
+            ItemStack stack = inventory.getItem(slot);
+            if (stack == null || stack.getType() == Material.AIR) {
+                continue;
+            }
+            Map<Integer, ItemStack> remaining = player.getInventory().addItem(stack);
+            if (!remaining.isEmpty()) {
+                remaining.values().forEach(item -> player.getWorld().dropItemNaturally(player.getLocation(), item));
+            }
+            inventory.clear(slot);
+        }
+        inventory.setItem(ADMIN_GUI_SAVE_SLOT, createSaveButton());
     }
 
     private boolean canBypass(Player player) {
