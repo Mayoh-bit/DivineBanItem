@@ -85,7 +85,7 @@ public class RecipeOverride {
         }
         ShapelessRecipe shapelessRecipe = new ShapelessRecipe(namespacedKey, result);
         for (Ingredient ingredient : ingredients) {
-            shapelessRecipe.addIngredient(ingredient.getAmount(), toChoice(ingredient));
+            addShapelessIngredient(shapelessRecipe, ingredient);
         }
         return shapelessRecipe;
     }
@@ -145,13 +145,13 @@ public class RecipeOverride {
     }
 
     public static RecipeOverride from(Map<?, ?> raw) {
-        String key = raw.getOrDefault("key", "override").toString();
-        Type type = Type.valueOf(raw.getOrDefault("type", "SHAPELESS").toString().toUpperCase(Locale.ROOT));
-        Map<?, ?> resultMap = (Map<?, ?>) raw.getOrDefault("result", new HashMap<>());
-        String resultKey = resultMap.getOrDefault("key", "minecraft:stone").toString();
-        int amount = Integer.parseInt(resultMap.getOrDefault("amount", 1).toString());
+        String key = getString(raw, "key", "override");
+        Type type = Type.valueOf(getString(raw, "type", "SHAPELESS").toUpperCase(Locale.ROOT));
+        Map<?, ?> resultMap = getMap(raw, "result");
+        String resultKey = getString(resultMap, "key", "minecraft:stone");
+        int amount = getInt(resultMap, "amount", 1);
         ItemStack result = ItemKeyUtils.createItemStack(resultKey, amount);
-        String snbt = resultMap.getOrDefault("snbt", "").toString();
+        String snbt = getString(resultMap, "snbt", "");
         if (result != null && !snbt.isBlank()) {
             result = NbtUtils.applySnbt(result, snbt);
         }
@@ -190,9 +190,57 @@ public class RecipeOverride {
     }
 
     private static Ingredient ingredientFromMap(Map<?, ?> map) {
-        String key = map.getOrDefault("key", "minecraft:stone").toString();
-        int amount = Integer.parseInt(map.getOrDefault("amount", 1).toString());
-        String snbt = map.getOrDefault("snbt", "").toString();
+        String key = getString(map, "key", "minecraft:stone");
+        int amount = getInt(map, "amount", 1);
+        String snbt = getString(map, "snbt", "");
         return new Ingredient(key, amount, snbt);
+    }
+
+    private void addShapelessIngredient(ShapelessRecipe recipe, Ingredient ingredient) {
+        RecipeChoice choice = toChoice(ingredient);
+        if (tryAddChoice(recipe, choice, ingredient.getAmount())) {
+            return;
+        }
+        ItemStack item = ItemKeyUtils.createItemStack(ingredient.getKey(), 1);
+        Material material = item == null ? Material.STONE : item.getType();
+        for (int i = 0; i < ingredient.getAmount(); i++) {
+            recipe.addIngredient(material);
+        }
+    }
+
+    private static boolean tryAddChoice(ShapelessRecipe recipe, RecipeChoice choice, int amount) {
+        try {
+            java.lang.reflect.Method method = ShapelessRecipe.class.getMethod("addIngredient", RecipeChoice.class);
+            for (int i = 0; i < amount; i++) {
+                method.invoke(recipe, choice);
+            }
+            return true;
+        } catch (ReflectiveOperationException ignored) {
+            return false;
+        }
+    }
+
+    private static String getString(Map<?, ?> map, String key, String defaultValue) {
+        Object value = map == null ? null : map.get(key);
+        return value == null ? defaultValue : value.toString();
+    }
+
+    private static int getInt(Map<?, ?> map, String key, int defaultValue) {
+        Object value = map == null ? null : map.get(key);
+        if (value == null) {
+            return defaultValue;
+        }
+        if (value instanceof Number number) {
+            return number.intValue();
+        }
+        return Integer.parseInt(value.toString());
+    }
+
+    private static Map<?, ?> getMap(Map<?, ?> map, String key) {
+        Object value = map == null ? null : map.get(key);
+        if (value instanceof Map<?, ?> valueMap) {
+            return valueMap;
+        }
+        return new HashMap<>();
     }
 }
