@@ -1,0 +1,35 @@
+settings:
+  command-aliases:
+    - divinebanitem
+  bypass-permission: divinebanitem.bypass.*
+  remove-bukkit-recipes-on-load: true
+  log-removal-summary: true
+
+entries:
+  example_elytra:
+    item:
+      key: minecraft:elytra
+      nbtMode: ANY
+      nbtValue: ""
+      nbtPath: ""
+    actions:
+      use: true
+      place: false
+      craft: true
+      smelt: false
+      pickup: false
+      drop: false
+    recipes:
+      removeBukkit: true
+      removeForge: false
+    purchase:
+      enabled: false
+      price: 0
+      durations:
+        - duration: 7d
+          price: 5000
+      licenseEffect:
+        allowUse: true
+        allowCraft: false
+
+recipeOverrides: []

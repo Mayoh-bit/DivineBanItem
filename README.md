@@ -100,6 +100,7 @@ DivineBanItem 是一款面向 Mohist 1.20.1 混合端的物品管控插件，核
 - 管理员：
   - `/dbi grant <player> <key> [duration]`
   - `/dbi revoke <player> <key>`
+  - `/dbi grant` / `/dbi revoke` 仅支持在线玩家目标（离线授权可直接编辑 licenses.yml）
 
 ## 权限
 
@@ -109,6 +110,11 @@ DivineBanItem 是一款面向 Mohist 1.20.1 混合端的物品管控插件，核
 - `divinebanitem.buy` 购买许可
 - `divinebanitem.admin` 管理员命令
 - `divinebanitem.bypass.*` 绕过封禁（仅管理组）
+
+说明：
+- `divinebanitem.bypass.*` 将绕过 use/place/craft/smelt/pickup/drop 全部拦截。
+- `/dbi nbt` 与 `/dbi reload` 默认仅 OP。
+- `/dbi buy` 仅当条目开启购买且安装 Vault 才有效。
 
 ## 配置结构（概念说明）
 
@@ -120,6 +126,85 @@ DivineBanItem 是一款面向 Mohist 1.20.1 混合端的物品管控插件，核
 - `licenseEffect`：许可放行范围（仅 use 或包含 craft 等）
 
 你可以自行添加条目与配方覆写，本仓库不提供固定模板，避免限制你的整合包玩法。
+
+### 配置示例
+
+```yml
+entries:
+  botania_flower:
+    item:
+      key: botania:specialflower
+      nbtMode: PATH_EQUALS
+      nbtPath: BlockEntityTag.flower
+      nbtValue: botania:manastar
+    actions:
+      use: true
+      place: true
+      craft: true
+      smelt: false
+      pickup: false
+      drop: false
+    recipes:
+      removeBukkit: true
+      removeForge: false
+    purchase:
+      enabled: true
+      price: 20000
+      durations:
+        - duration: 7d
+          price: 5000
+        - duration: 30d
+          price: 12000
+      licenseEffect:
+        allowUse: true
+        allowCraft: false
+
+recipeOverrides:
+  - key: custom_elytra
+    type: SHAPED
+    result:
+      key: minecraft:elytra
+      amount: 1
+    shape:
+      - "ABA"
+      - "CDC"
+      - "ABA"
+    ingredients:
+      A:
+        key: minecraft:phantom_membrane
+      B:
+        key: minecraft:netherite_ingot
+      C:
+        key: minecraft:diamond
+      D:
+        key: minecraft:nether_star
+```
+
+### duration 格式说明
+
+`duration` 支持组合单位：`s` 秒、`m` 分、`h` 小时、`d` 天、`w` 周。  
+例如：`7d`、`1h30m`、`2w3d`。
+
+### recipeOverrides 说明
+
+支持 `SHAPED` 与 `SHAPELESS` 两种类型：
+
+```yml
+recipeOverrides:
+  - key: custom_shapeless
+    type: SHAPELESS
+    result:
+      key: minecraft:golden_apple
+      amount: 1
+      snbt: "{CustomModelData:1}"
+    ingredients:
+      - key: minecraft:apple
+        amount: 1
+      - key: minecraft:gold_ingot
+        amount: 8
+```
+
+每个材料支持 `snbt`，会以 ExactChoice 注册（带 NBT 精确匹配）。
 
 ## 运维建议
 
