@@ -36,7 +36,6 @@ import org.bukkit.event.inventory.InventoryCreativeEvent;
 import org.bukkit.event.inventory.InventoryDragEvent;
 import org.bukkit.event.inventory.CraftItemEvent;
 import org.bukkit.event.inventory.FurnaceSmeltEvent;
-import org.bukkit.event.inventory.InventoryAction;
 import org.bukkit.event.inventory.ClickType;
 import org.bukkit.event.inventory.PrepareItemCraftEvent;
 import org.bukkit.event.player.PlayerDropItemEvent;
@@ -67,6 +66,18 @@ public class DivineBanItem extends JavaPlugin implements Listener {
     private static final int LIST_PREV_SLOT = 45;
     private static final int LIST_INFO_SLOT = 49;
     private static final int LIST_NEXT_SLOT = 53;
+    private static final String LIST_TITLE_PREFIX = "&3封禁物品列表";
+
+    private static final class ListInventoryHolder implements org.bukkit.inventory.InventoryHolder {
+        private ListInventoryHolder() {
+        }
+
+        @Override
+        public Inventory getInventory() {
+            return null;
+        }
+
+    }
 
     @Override
     public void onEnable() {
@@ -592,8 +603,7 @@ public class DivineBanItem extends JavaPlugin implements Listener {
             return;
         }
         Player player = (Player) event.getWhoClicked();
-        Inventory listInventory = listInventories.get(player.getUniqueId());
-        if (listInventory != null && event.getView().getTopInventory().equals(listInventory)) {
+        if (isListInventory(event.getView().getTopInventory(), player)) {
             handleListInventoryClick(event, player);
             return;
         }
@@ -634,10 +644,10 @@ public class DivineBanItem extends JavaPlugin implements Listener {
             return;
         }
         Player player = (Player) event.getWhoClicked();
-        Inventory listInventory = listInventories.get(player.getUniqueId());
-        if (listInventory != null && event.getView().getTopInventory().equals(listInventory)) {
+        if (isListInventory(event.getView().getTopInventory(), player)) {
             event.setCancelled(true);
             event.setResult(org.bukkit.event.Event.Result.DENY);
+            player.updateInventory();
             return;
         }
         Inventory adminInventory = adminInventories.get(player.getUniqueId());
@@ -657,9 +667,9 @@ public class DivineBanItem extends JavaPlugin implements Listener {
             return;
         }
         Player player = (Player) event.getWhoClicked();
-        Inventory listInventory = listInventories.get(player.getUniqueId());
-        if (listInventory != null && event.getView().getTopInventory().equals(listInventory)) {
+        if (isListInventory(event.getView().getTopInventory(), player)) {
             event.setCancelled(true);
+            player.updateInventory();
             return;
         }
         Inventory adminInventory = adminInventories.get(player.getUniqueId());
@@ -679,8 +689,7 @@ public class DivineBanItem extends JavaPlugin implements Listener {
             return;
         }
         Player player = (Player) event.getPlayer();
-        Inventory listInventory = listInventories.get(player.getUniqueId());
-        if (listInventory != null && event.getInventory().equals(listInventory)) {
+        if (isListInventory(event.getInventory(), player)) {
             listInventories.remove(player.getUniqueId());
             listPages.remove(player.getUniqueId());
             return;
@@ -1123,8 +1132,8 @@ public class DivineBanItem extends JavaPlugin implements Listener {
             .collect(Collectors.toList());
         int totalPages = Math.max(1, (int) Math.ceil(rules.size() / (double) LIST_PAGE_SIZE));
         int safePage = Math.max(0, Math.min(page, totalPages - 1));
-        Inventory inventory = Bukkit.createInventory(player, 54,
-            MessageService.colorize("&3封禁物品列表 &7(" + (safePage + 1) + "/" + totalPages + ")"));
+        Inventory inventory = Bukkit.createInventory(new ListInventoryHolder(), 54,
+            MessageService.colorize(LIST_TITLE_PREFIX + " &7(" + (safePage + 1) + "/" + totalPages + ")"));
         int startIndex = safePage * LIST_PAGE_SIZE;
         for (int slot = 0; slot < LIST_PAGE_SIZE; slot++) {
             int index = startIndex + slot;
@@ -1152,12 +1161,7 @@ public class DivineBanItem extends JavaPlugin implements Listener {
     private void handleListInventoryClick(InventoryClickEvent event, Player player) {
         event.setCancelled(true);
         event.setResult(org.bukkit.event.Event.Result.DENY);
-        if (event.getAction() == InventoryAction.MOVE_TO_OTHER_INVENTORY
-            || event.getAction() == InventoryAction.HOTBAR_MOVE_AND_READD
-            || event.getAction() == InventoryAction.HOTBAR_SWAP
-            || event.getAction() == InventoryAction.COLLECT_TO_CURSOR) {
-            player.updateInventory();
-        }
+        player.updateInventory();
         int slot = event.getRawSlot();
         int page = listPages.getOrDefault(player.getUniqueId(), 0);
         if (slot == LIST_PREV_SLOT) {
@@ -1167,6 +1171,17 @@ public class DivineBanItem extends JavaPlugin implements Listener {
         if (slot == LIST_NEXT_SLOT) {
             openListInventory(player, page + 1);
         }
+    }
+
+    private boolean isListInventory(Inventory inventory, Player player) {
+        if (inventory == null) {
+            return false;
+        }
+        if (inventory.getHolder() instanceof ListInventoryHolder) {
+            return true;
+        }
+        Inventory stored = listInventories.get(player.getUniqueId());
+        return stored != null && stored.equals(inventory);
     }
 
     private void openAdminInventory(Player player) {
