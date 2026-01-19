@@ -29,7 +29,7 @@ public class RecipeEditorSession {
     public RecipeEditorSession(UUID playerId) {
         this.playerId = playerId;
         this.type = RecipeOverride.Type.SHAPED;
-        this.inventory = Bukkit.createInventory(null, SIZE, ChatColor.DARK_GREEN + "Recipe Editor");
+        this.inventory = Bukkit.createInventory(null, SIZE, ChatColor.DARK_GREEN + "配方编辑器");
         renderControls();
     }
 
@@ -56,12 +56,12 @@ public class RecipeEditorSession {
 
     private void renderControls() {
         inventory.setItem(MODE_SLOT, createControl(Material.CRAFTING_TABLE,
-            "&eMode: &f" + (type == RecipeOverride.Type.SHAPED ? "Shaped" : "Shapeless"),
-            "&7Click to toggle"));
+            "&8配方模式: &b" + (type == RecipeOverride.Type.SHAPED ? "有序" : "无序"),
+            "&7点击切换模式"));
         inventory.setItem(SAVE_SLOT, createControl(Material.EMERALD_BLOCK,
-            "&aSave Recipe", "&7Persist override and apply"));
+            "&a保存配方", "&7保存并立即生效"));
         inventory.setItem(CLOSE_SLOT, createControl(Material.BARRIER,
-            "&cClose", "&7Close editor"));
+            "&c关闭", "&7关闭编辑器"));
     }
 
     private ItemStack createControl(Material material, String name, String lore) {

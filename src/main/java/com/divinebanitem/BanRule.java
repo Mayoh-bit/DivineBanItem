@@ -59,9 +59,10 @@ public class BanRule {
     private final Actions actions;
     private final Recipes recipes;
     private final PurchaseOptions purchase;
+    private final String reason;
 
     public BanRule(String key, String itemKey, NbtMode nbtMode, String nbtValue, String nbtPath,
-                   Actions actions, Recipes recipes, PurchaseOptions purchase) {
+                   Actions actions, Recipes recipes, PurchaseOptions purchase, String reason) {
         this.key = key;
         this.itemKey = itemKey;
         this.nbtMode = nbtMode;
@@ -70,6 +71,7 @@ public class BanRule {
         this.actions = actions;
         this.recipes = recipes;
         this.purchase = purchase;
+        this.reason = reason;
     }
 
     public String getKey() {
@@ -102,5 +104,9 @@ public class BanRule {
 
     public PurchaseOptions getPurchase() {
         return purchase;
+    }
+
+    public String getReason() {
+        return reason;
     }
 }
