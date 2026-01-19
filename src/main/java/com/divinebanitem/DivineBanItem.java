@@ -359,16 +359,18 @@ public class DivineBanItem extends JavaPlugin implements Listener {
             messages.send(sender, "no-permission");
             return true;
         }
-        if (!(sender instanceof Player)) {
-            List<String> keys = ruleManager.getRules().stream()
-                .map(BanRule::getKey)
-                .sorted()
-                .collect(Collectors.toList());
-            sender.sendMessage(MessageService.colorize("&7封禁条目: &f" + String.join(", ", keys)));
+        List<String> entries = ruleManager.getRules().stream()
+            .sorted(java.util.Comparator.comparing(BanRule::getKey))
+            .map(rule -> MessageService.colorize("&f" + rule.getKey() + " &7- &b" + getRuleDisplayName(rule)))
+            .collect(Collectors.toList());
+        if (entries.isEmpty()) {
+            sender.sendMessage(MessageService.colorize("&7封禁条目: &8暂无"));
             return true;
         }
-        Player player = (Player) sender;
-        openListInventory(player, 0);
+        sender.sendMessage(MessageService.colorize("&7封禁条目列表:"));
+        for (String line : entries) {
+            sender.sendMessage(line);
+        }
         return true;
     }
 
@@ -1203,6 +1205,39 @@ public class DivineBanItem extends JavaPlugin implements Listener {
         adminInventories.put(player.getUniqueId(), inventory);
         adminRuleSlots.put(player.getUniqueId(), ruleSlots);
         player.openInventory(inventory);
+    }
+
+    private String getRuleDisplayName(BanRule rule) {
+        ItemStack item = ItemKeyUtils.createItemStack(rule.getItemKey(), 1);
+        if (item == null || item.getType() == Material.AIR) {
+            return rule.getItemKey();
+        }
+        ItemMeta meta = item.getItemMeta();
+        if (meta != null) {
+            String displayName = meta.getDisplayName();
+            if (displayName != null && !displayName.isBlank()) {
+                return displayName;
+            }
+        }
+        return formatMaterialName(item.getType());
+    }
+
+    private String formatMaterialName(Material material) {
+        String raw = material.name().toLowerCase(Locale.ROOT).replace('_', ' ');
+        StringBuilder builder = new StringBuilder(raw.length());
+        boolean upperNext = true;
+        for (char c : raw.toCharArray()) {
+            if (upperNext && Character.isLetter(c)) {
+                builder.append(Character.toUpperCase(c));
+                upperNext = false;
+                continue;
+            }
+            builder.append(c);
+            if (c == ' ') {
+                upperNext = true;
+            }
+        }
+        return builder.toString();
     }
 
     private ItemStack buildRuleDisplay(BanRule rule) {
