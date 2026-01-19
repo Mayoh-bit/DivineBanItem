@@ -30,6 +30,7 @@ import org.bukkit.event.entity.EntityPickupItemEvent;
 import org.bukkit.event.inventory.CraftItemEvent;
 import org.bukkit.event.inventory.InventoryClickEvent;
 import org.bukkit.event.inventory.InventoryCloseEvent;
+import org.bukkit.event.inventory.InventoryDragEvent;
 import org.bukkit.event.inventory.FurnaceSmeltEvent;
 import org.bukkit.event.player.PlayerDropItemEvent;
 import org.bukkit.event.player.PlayerInteractEvent;
@@ -471,6 +472,24 @@ public class DivineBanItem extends JavaPlugin implements Listener {
         saveAdminInventory(player, inventory);
         adminInventories.remove(player.getUniqueId());
         adminInventorySaved.remove(player.getUniqueId());
+    }
+
+    @EventHandler
+    public void onInventoryDrag(InventoryDragEvent event) {
+        if (!(event.getWhoClicked() instanceof Player)) {
+            return;
+        }
+        Player player = (Player) event.getWhoClicked();
+        Inventory inventory = adminInventories.get(player.getUniqueId());
+        if (inventory == null || !event.getView().getTopInventory().equals(inventory)) {
+            return;
+        }
+        int topSize = event.getView().getTopInventory().getSize();
+        boolean touchesSaveSlot = event.getRawSlots().stream()
+            .anyMatch(slot -> slot < topSize && slot == ADMIN_GUI_SAVE_SLOT);
+        if (touchesSaveSlot) {
+            event.setCancelled(true);
+        }
     }
 
     private void saveAdminInventory(Player player, Inventory inventory) {
