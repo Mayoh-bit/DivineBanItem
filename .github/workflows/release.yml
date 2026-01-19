@@ -30,7 +30,10 @@ jobs:
           cache: maven
 
       - name: Build with Maven
-        run: mvn -B package
+        run: |
+          RELEASE_TAG="${{ inputs.tag || github.ref_name }}"
+          RELEASE_VERSION="${RELEASE_TAG#v}"
+          mvn -B -Drevision="${RELEASE_VERSION}" package
 
       - name: Create GitHub release
         uses: softprops/action-gh-release@v2
