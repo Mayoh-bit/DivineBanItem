@@ -58,10 +58,14 @@ public final class ItemKeyUtils {
             Class<?> builtInRegistries = Class.forName("net.minecraft.core.registries.BuiltInRegistries");
             Field itemRegistryField = builtInRegistries.getField("ITEM");
             Object registry = itemRegistryField.get(null);
-            Method getKey = registry.getClass().getMethod("getKey", Object.class);
-            Object key = getKey.invoke(registry, item);
+            Object key = getRegistryKey(registry, item);
             if (key != null) {
                 return key.toString();
+            }
+            Object forgeRegistry = getForgeItemRegistry();
+            Object forgeKey = getRegistryKey(forgeRegistry, item);
+            if (forgeKey != null) {
+                return forgeKey.toString();
             }
         } catch (Exception ignored) {
         }
@@ -79,8 +83,11 @@ public final class ItemKeyUtils {
             Class<?> builtInRegistries = Class.forName("net.minecraft.core.registries.BuiltInRegistries");
             Field itemRegistryField = builtInRegistries.getField("ITEM");
             Object registry = itemRegistryField.get(null);
-            Method get = registry.getClass().getMethod("get", resourceLocation);
-            Object item = get.invoke(registry, resLoc);
+            Object item = getRegistryItem(registry, resLoc);
+            if (item == null) {
+                Object forgeRegistry = getForgeItemRegistry();
+                item = getRegistryItem(forgeRegistry, resLoc);
+            }
             if (item == null) {
                 return null;
             }
@@ -92,5 +99,46 @@ public final class ItemKeyUtils {
         } catch (Exception ignored) {
         }
         return null;
+    }
+
+    private static Object getForgeItemRegistry() {
+        try {
+            Class<?> forgeRegistries = Class.forName("net.minecraftforge.registries.ForgeRegistries");
+            Field itemsField = forgeRegistries.getField("ITEMS");
+            return itemsField.get(null);
+        } catch (Exception ignored) {
+        }
+        return null;
+    }
+
+    private static Object getRegistryItem(Object registry, Object resLoc) {
+        if (registry == null || resLoc == null) {
+            return null;
+        }
+        try {
+            Method get = registry.getClass().getMethod("get", resLoc.getClass());
+            return get.invoke(registry, resLoc);
+        } catch (NoSuchMethodException ignored) {
+            try {
+                Method getValue = registry.getClass().getMethod("getValue", resLoc.getClass());
+                return getValue.invoke(registry, resLoc);
+            } catch (Exception ignoredAgain) {
+                return null;
+            }
+        } catch (Exception ignored) {
+            return null;
+        }
+    }
+
+    private static Object getRegistryKey(Object registry, Object item) {
+        if (registry == null || item == null) {
+            return null;
+        }
+        try {
+            Method getKey = registry.getClass().getMethod("getKey", Object.class);
+            return getKey.invoke(registry, item);
+        } catch (Exception ignored) {
+            return null;
+        }
     }
 }
