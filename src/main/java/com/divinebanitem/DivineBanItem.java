@@ -2,6 +2,7 @@ package com.divinebanitem;
 
 import java.io.File;
 import java.io.IOException;
+import java.util.Collection;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -1419,11 +1420,35 @@ public class DivineBanItem extends JavaPlugin implements Listener {
         if (event.getAction() == Action.RIGHT_CLICK_AIR || event.getAction() == Action.RIGHT_CLICK_BLOCK) {
             Player player = event.getPlayer();
             ItemStack stack = event.getItem();
+            if (event.getAction() == Action.RIGHT_CLICK_BLOCK && event.getClickedBlock() != null) {
+                ItemStack blockStack = resolveBlockItem(event.getClickedBlock(), stack);
+                if (shouldBlock(player, blockStack, ActionContext.use())) {
+                    sendBlocked(player, "blocked-use");
+                    event.setCancelled(true);
+                    event.getClickedBlock().setType(Material.AIR, false);
+                    return;
+                }
+            }
             if (shouldBlock(player, stack, ActionContext.use())) {
                 sendBlocked(player, "blocked-use");
                 event.setCancelled(true);
             }
         }
+    }
+
+    private ItemStack resolveBlockItem(org.bukkit.block.Block block, ItemStack tool) {
+        if (block == null || block.getType() == Material.AIR) {
+            return null;
+        }
+        Collection<ItemStack> drops = tool == null ? block.getDrops() : block.getDrops(tool);
+        for (ItemStack drop : drops) {
+            if (drop != null && drop.getType() != Material.AIR) {
+                ItemStack clone = drop.clone();
+                clone.setAmount(1);
+                return clone;
+            }
+        }
+        return new ItemStack(block.getType());
     }
 
     @EventHandler
