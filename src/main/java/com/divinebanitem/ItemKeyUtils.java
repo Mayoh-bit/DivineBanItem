@@ -28,6 +28,18 @@ public final class ItemKeyUtils {
             return fromNms;
         }
         Material material = Material.matchMaterial(key);
+        if (material == null && key != null) {
+            String normalized = key.toLowerCase(java.util.Locale.ROOT);
+            if (normalized.contains(":")) {
+                String legacy = normalized.substring(normalized.indexOf(':') + 1);
+                material = Material.matchMaterial(legacy);
+                if (material == null) {
+                    material = Material.getMaterial(legacy.toUpperCase(java.util.Locale.ROOT));
+                }
+            } else {
+                material = Material.getMaterial(normalized.toUpperCase(java.util.Locale.ROOT));
+            }
+        }
         if (material == null) {
             return null;
         }

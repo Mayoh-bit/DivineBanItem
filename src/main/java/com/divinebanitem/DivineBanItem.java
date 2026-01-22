@@ -365,6 +365,15 @@ public class DivineBanItem extends JavaPlugin implements Listener {
             messages.send(sender, "no-permission");
             return true;
         }
+        if (sender instanceof Player) {
+            Player player = (Player) sender;
+            if (ruleManager.getRules().isEmpty()) {
+                player.sendMessage(MessageService.colorize("&7封禁条目: &8暂无"));
+                return true;
+            }
+            openListInventory(player, 0);
+            return true;
+        }
         List<BanRule> rules = ruleManager.getRules().stream()
             .sorted(java.util.Comparator.comparing(BanRule::getKey))
             .collect(Collectors.toList());
@@ -373,13 +382,6 @@ public class DivineBanItem extends JavaPlugin implements Listener {
             return true;
         }
         sender.sendMessage(MessageService.colorize("&7封禁条目列表:"));
-        if (sender instanceof Player) {
-            Player player = (Player) sender;
-            for (BanRule rule : rules) {
-                player.spigot().sendMessage(buildListLine(rule));
-            }
-            return true;
-        }
         for (BanRule rule : rules) {
             sender.sendMessage(MessageService.colorize("&f" + rule.getKey() + " &7- &b" + getRuleDisplayName(rule)));
         }
@@ -717,12 +719,31 @@ public class DivineBanItem extends JavaPlugin implements Listener {
             adminRuleSlots.remove(player.getUniqueId());
             return;
         }
-        returnItems(player, adminInventory, adminRuleSlots.getOrDefault(player.getUniqueId(), Map.of()));
+        Map<Integer, String> ruleSlots = adminRuleSlots.getOrDefault(player.getUniqueId(), Map.of());
+        int saved = saveAdminInventoryEntries(player, adminInventory, ruleSlots);
+        returnItems(player, adminInventory, ruleSlots);
+        if (saved > 0) {
+            player.sendMessage(MessageService.colorize("&a已保存 " + saved + " 条封禁配置。"));
+        }
         adminInventories.remove(player.getUniqueId());
         adminRuleSlots.remove(player.getUniqueId());
     }
 
     private void saveAdminInventory(Player player, Inventory inventory, Map<Integer, String> ruleSlots) {
+        int saved = saveAdminInventoryEntries(player, inventory, ruleSlots);
+        if (saved <= 0) {
+            if (saved == 0) {
+                player.sendMessage(MessageService.colorize("&e没有可保存的物品。"));
+            }
+            return;
+        }
+        returnItems(player, inventory, ruleSlots);
+        adminInventorySaving.add(player.getUniqueId());
+        player.sendMessage(MessageService.colorize("&a已保存 " + saved + " 条封禁配置。"));
+        player.closeInventory();
+    }
+
+    private int saveAdminInventoryEntries(Player player, Inventory inventory, Map<Integer, String> ruleSlots) {
         FileConfiguration config = getConfig();
         ConfigurationSection entries = config.getConfigurationSection("entries");
         if (entries == null) {
@@ -743,20 +764,16 @@ public class DivineBanItem extends JavaPlugin implements Listener {
             }
         }
         if (saved == 0) {
-            player.sendMessage(MessageService.colorize("&e没有可保存的物品。"));
-            return;
+            return 0;
         }
         try {
             config.save(new File(getDataFolder(), "config.yml"));
         } catch (IOException ignored) {
             player.sendMessage(MessageService.colorize("&c保存封禁配置失败。"));
-            return;
+            return -1;
         }
         reloadPlugin();
-        returnItems(player, inventory, ruleSlots);
-        adminInventorySaving.add(player.getUniqueId());
-        player.sendMessage(MessageService.colorize("&a已保存 " + saved + " 条封禁配置。"));
-        player.closeInventory();
+        return saved;
     }
 
     private void returnItems(Player player, Inventory inventory, Map<Integer, String> ruleSlots) {
