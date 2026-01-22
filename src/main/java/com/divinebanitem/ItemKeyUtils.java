@@ -92,7 +92,10 @@ public final class ItemKeyUtils {
                 return null;
             }
             Class<?> nmsItemStack = Class.forName("net.minecraft.world.item.ItemStack");
-            Constructor<?> itemStackCtor = nmsItemStack.getConstructor(item.getClass(), int.class);
+            Constructor<?> itemStackCtor = findItemStackConstructor(nmsItemStack, item.getClass());
+            if (itemStackCtor == null) {
+                return null;
+            }
             Object nmsStack = itemStackCtor.newInstance(item, amount);
             Method asBukkitCopy = craftItemStack.getMethod("asBukkitCopy", nmsItemStack);
             return (ItemStack) asBukkitCopy.invoke(null, nmsStack);
@@ -140,5 +143,15 @@ public final class ItemKeyUtils {
         } catch (Exception ignored) {
             return null;
         }
+    }
+
+    private static Constructor<?> findItemStackConstructor(Class<?> nmsItemStack, Class<?> itemClass) {
+        for (Constructor<?> constructor : nmsItemStack.getConstructors()) {
+            Class<?>[] params = constructor.getParameterTypes();
+            if (params.length == 2 && params[1] == int.class && params[0].isAssignableFrom(itemClass)) {
+                return constructor;
+            }
+        }
+        return null;
     }
 }
