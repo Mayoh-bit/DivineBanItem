@@ -7,6 +7,7 @@ import java.util.Collection;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.Iterator;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -19,7 +20,8 @@ import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.Recipe;
 
 public class BanRuleManager {
-    private final Map<String, BanRule> rules = new HashMap<>();
+    private final Map<String, BanRule> rules = new LinkedHashMap<>();
+    private final Map<String, RuleBucket> rulesByItemKey = new HashMap<>();
     private final List<RecipeOverride> overrides = new ArrayList<>();
     private final File configFile;
     private FileConfiguration config;
@@ -32,6 +34,7 @@ public class BanRuleManager {
     public void load(FileConfiguration config) {
         this.config = config;
         rules.clear();
+        rulesByItemKey.clear();
         overrides.clear();
         ConfigurationSection entries = config.getConfigurationSection("entries");
         if (entries != null) {
@@ -94,7 +97,9 @@ public class BanRuleManager {
                     purchase.durations = tiers;
                 }
                 String reason = section.getString("reason", "");
-                rules.put(key, new BanRule(key, itemKey, nbtMode, nbtValue, nbtPath, actions, recipes, purchase, reason));
+                BanRule rule = new BanRule(key, itemKey, nbtMode, nbtValue, nbtPath, actions, recipes, purchase, reason);
+                rules.put(key, rule);
+                indexRule(rule);
             }
         }
 
@@ -114,34 +119,34 @@ public class BanRuleManager {
 
     public BanRule match(ItemStack stack) {
         String key = ItemKeyUtils.getItemKey(stack);
-        for (BanRule rule : rules.values()) {
-            if (!rule.getItemKey().equalsIgnoreCase(key)) {
-                continue;
+        if (key == null) {
+            return null;
+        }
+        RuleBucket bucket = rulesByItemKey.get(key.toLowerCase(Locale.ROOT));
+        if (bucket == null) {
+            return null;
+        }
+        String snbt = null;
+        for (BanRule rule : bucket.nbtRules) {
+            if (rule.getNbtMode() == BanRule.NbtMode.EXACT_SNBT || rule.getNbtMode() == BanRule.NbtMode.CONTAINS_SNBT) {
+                if (snbt == null) {
+                    snbt = NbtUtils.getSnbt(stack);
+                }
+                if (rule.getNbtMode() == BanRule.NbtMode.EXACT_SNBT && snbt.equals(rule.getNbtValue())) {
+                    return rule;
+                }
+                if (rule.getNbtMode() == BanRule.NbtMode.CONTAINS_SNBT && snbt.contains(rule.getNbtValue())) {
+                    return rule;
+                }
+            } else if (rule.getNbtMode() == BanRule.NbtMode.PATH_EQUALS) {
+                String value = NbtUtils.getPathValue(stack, rule.getNbtPath());
+                if (value.equals(rule.getNbtValue())) {
+                    return rule;
+                }
             }
-            if (rule.getNbtMode() == BanRule.NbtMode.ANY) {
-                return rule;
-            }
-            String snbt = NbtUtils.getSnbt(stack);
-            switch (rule.getNbtMode()) {
-                case EXACT_SNBT:
-                    if (snbt.equals(rule.getNbtValue())) {
-                        return rule;
-                    }
-                    break;
-                case CONTAINS_SNBT:
-                    if (snbt.contains(rule.getNbtValue())) {
-                        return rule;
-                    }
-                    break;
-                case PATH_EQUALS:
-                    String value = NbtUtils.getPathValue(stack, rule.getNbtPath());
-                    if (value.equals(rule.getNbtValue())) {
-                        return rule;
-                    }
-                    break;
-                default:
-                    break;
-            }
+        }
+        if (!bucket.anyRules.isEmpty()) {
+            return bucket.anyRules.get(0);
         }
         return null;
     }
@@ -186,5 +191,20 @@ public class BanRuleManager {
             }
         }
         return removed;
+    }
+
+    private void indexRule(BanRule rule) {
+        String itemKey = rule.getItemKey() == null ? "" : rule.getItemKey().toLowerCase(Locale.ROOT);
+        RuleBucket bucket = rulesByItemKey.computeIfAbsent(itemKey, ignored -> new RuleBucket());
+        if (rule.getNbtMode() == BanRule.NbtMode.ANY) {
+            bucket.anyRules.add(rule);
+        } else {
+            bucket.nbtRules.add(rule);
+        }
+    }
+
+    private static final class RuleBucket {
+        private final List<BanRule> anyRules = new ArrayList<>();
+        private final List<BanRule> nbtRules = new ArrayList<>();
     }
 }
