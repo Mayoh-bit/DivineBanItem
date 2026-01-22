@@ -6,6 +6,10 @@ import org.bukkit.Bukkit;
 import org.bukkit.inventory.ItemStack;
 
 public final class NbtUtils {
+    private static final Object ACCESS_LOCK = new Object();
+    private static volatile ReflectionAccess reflectionAccess;
+    private static volatile boolean reflectionResolved;
+
     private NbtUtils() {
     }
 
@@ -58,25 +62,16 @@ public final class NbtUtils {
             return stack;
         }
         try {
-            String version = Bukkit.getServer().getClass().getPackage().getName().split("\\.")[3];
-            Class<?> craftItemStack = Class.forName("org.bukkit.craftbukkit." + version + ".inventory.CraftItemStack");
-            Method asNmsCopy = craftItemStack.getMethod("asNMSCopy", ItemStack.class);
-            Object nmsItem = asNmsCopy.invoke(null, stack);
-            Class<?> tagParser = Class.forName("net.minecraft.nbt.TagParser");
-            Method parseTag = tagParser.getMethod("parseTag", String.class);
-            Object compoundTag = parseTag.invoke(null, snbt);
-            Method setTag = null;
-            for (Method method : nmsItem.getClass().getMethods()) {
-                if (method.getName().equals("setTag") && method.getParameterCount() == 1) {
-                    setTag = method;
-                    break;
-                }
+            ReflectionAccess access = getReflectionAccess();
+            if (access == null) {
+                return stack;
             }
-            if (setTag != null) {
-                setTag.invoke(nmsItem, compoundTag);
+            Object nmsItem = access.asNmsCopy.invoke(null, stack);
+            Object compoundTag = access.parseTag.invoke(null, snbt);
+            if (access.setTag != null) {
+                access.setTag.invoke(nmsItem, compoundTag);
             }
-            Method asBukkitCopy = craftItemStack.getMethod("asBukkitCopy", nmsItem.getClass());
-            return (ItemStack) asBukkitCopy.invoke(null, nmsItem);
+            return (ItemStack) access.asBukkitCopy.invoke(null, nmsItem);
         } catch (Exception ignored) {
         }
         return stack;
@@ -86,14 +81,69 @@ public final class NbtUtils {
         if (stack == null) {
             return null;
         }
-        String version = Bukkit.getServer().getClass().getPackage().getName().split("\\.")[3];
-        Class<?> craftItemStack = Class.forName("org.bukkit.craftbukkit." + version + ".inventory.CraftItemStack");
-        Method asNmsCopy = craftItemStack.getMethod("asNMSCopy", ItemStack.class);
-        Object nmsItem = asNmsCopy.invoke(null, stack);
-        Class<?> compoundTagClass = Class.forName("net.minecraft.nbt.CompoundTag");
-        Constructor<?> ctor = compoundTagClass.getConstructor();
-        Object tag = ctor.newInstance();
-        Method save = nmsItem.getClass().getMethod("save", compoundTagClass);
-        return save.invoke(nmsItem, tag);
+        ReflectionAccess access = getReflectionAccess();
+        if (access == null) {
+            return null;
+        }
+        Object nmsItem = access.asNmsCopy.invoke(null, stack);
+        Object tag = access.compoundTagCtor.newInstance();
+        return access.saveMethod.invoke(nmsItem, tag);
+    }
+
+    private static ReflectionAccess getReflectionAccess() {
+        if (reflectionResolved) {
+            return reflectionAccess;
+        }
+        synchronized (ACCESS_LOCK) {
+            if (!reflectionResolved) {
+                reflectionAccess = ReflectionAccess.create();
+                reflectionResolved = true;
+            }
+        }
+        return reflectionAccess;
+    }
+
+    private static final class ReflectionAccess {
+        private final Method asNmsCopy;
+        private final Method asBukkitCopy;
+        private final Constructor<?> compoundTagCtor;
+        private final Method saveMethod;
+        private final Method parseTag;
+        private final Method setTag;
+
+        private ReflectionAccess(Method asNmsCopy, Method asBukkitCopy, Constructor<?> compoundTagCtor,
+                                 Method saveMethod, Method parseTag, Method setTag) {
+            this.asNmsCopy = asNmsCopy;
+            this.asBukkitCopy = asBukkitCopy;
+            this.compoundTagCtor = compoundTagCtor;
+            this.saveMethod = saveMethod;
+            this.parseTag = parseTag;
+            this.setTag = setTag;
+        }
+
+        private static ReflectionAccess create() {
+            try {
+                String version = Bukkit.getServer().getClass().getPackage().getName().split("\\.")[3];
+                Class<?> craftItemStack = Class.forName("org.bukkit.craftbukkit." + version + ".inventory.CraftItemStack");
+                Method asNmsCopy = craftItemStack.getMethod("asNMSCopy", ItemStack.class);
+                Class<?> nmsItemStackClass = Class.forName("net.minecraft.world.item.ItemStack");
+                Method asBukkitCopy = craftItemStack.getMethod("asBukkitCopy", nmsItemStackClass);
+                Class<?> compoundTagClass = Class.forName("net.minecraft.nbt.CompoundTag");
+                Constructor<?> ctor = compoundTagClass.getConstructor();
+                Method saveMethod = nmsItemStackClass.getMethod("save", compoundTagClass);
+                Class<?> tagParser = Class.forName("net.minecraft.nbt.TagParser");
+                Method parseTag = tagParser.getMethod("parseTag", String.class);
+                Method setTag = null;
+                for (Method method : nmsItemStackClass.getMethods()) {
+                    if (method.getName().equals("setTag") && method.getParameterCount() == 1) {
+                        setTag = method;
+                        break;
+                    }
+                }
+                return new ReflectionAccess(asNmsCopy, asBukkitCopy, ctor, saveMethod, parseTag, setTag);
+            } catch (Exception ignored) {
+                return null;
+            }
+        }
     }
 }
