@@ -20,6 +20,7 @@ import net.md_5.bungee.api.chat.HoverEvent;
 import net.md_5.bungee.api.chat.TextComponent;
 import org.bukkit.Bukkit;
 import org.bukkit.Material;
+import org.bukkit.NamespacedKey;
 import org.bukkit.command.Command;
 import org.bukkit.command.CommandSender;
 import org.bukkit.command.PluginCommand;
@@ -1237,11 +1238,25 @@ public class DivineBanItem extends JavaPlugin implements Listener {
     }
 
     private String getRuleDisplayName(BanRule rule) {
-        ItemStack item = ItemKeyUtils.createItemStack(rule.getItemKey(), 1);
-        if (item == null || item.getType() == Material.AIR) {
+        if (rule.getItemKey() == null) {
+            return "";
+        }
+        NamespacedKey key = NamespacedKey.fromString(rule.getItemKey());
+        Material material = null;
+        if (key != null) {
+            try {
+                material = Bukkit.getRegistry(Material.class).get(key);
+            } catch (Exception ignored) {
+                material = null;
+            }
+        }
+        if (material == null) {
+            material = Material.matchMaterial(rule.getItemKey());
+        }
+        if (material == null || material == Material.AIR) {
             return rule.getItemKey();
         }
-        return formatMaterialName(item.getType());
+        return formatMaterialName(material);
     }
 
     private String formatMaterialName(Material material) {
@@ -1265,17 +1280,13 @@ public class DivineBanItem extends JavaPlugin implements Listener {
     private BaseComponent[] buildListLine(BanRule rule) {
         TextComponent base = new TextComponent(MessageService.colorize("&f" + rule.getKey() + " &7- "));
         TextComponent name = new TextComponent(MessageService.colorize("&b" + getRuleDisplayName(rule)));
-        ItemStack item = ItemKeyUtils.createItemStack(rule.getItemKey(), 1);
-        if (item != null && item.getType() != Material.AIR) {
-            String nbt = NbtUtils.getSnbt(item);
-            StringBuilder hoverBuilder = new StringBuilder();
-            hoverBuilder.append("&7物品: &f").append(item.getType().getKey().toString());
-            if (nbt != null && !nbt.isBlank()) {
-                hoverBuilder.append("\n&7NBT: &f").append(nbt);
-            }
-            TextComponent hoverText = new TextComponent(MessageService.colorize(hoverBuilder.toString()));
-            name.setHoverEvent(new HoverEvent(HoverEvent.Action.SHOW_TEXT, new BaseComponent[] { hoverText }));
+        StringBuilder hoverBuilder = new StringBuilder();
+        hoverBuilder.append("&7物品: &f").append(rule.getItemKey());
+        if (rule.getNbtValue() != null && !rule.getNbtValue().isBlank()) {
+            hoverBuilder.append("\n&7NBT: &f").append(rule.getNbtValue());
         }
+        TextComponent hoverText = new TextComponent(MessageService.colorize(hoverBuilder.toString()));
+        name.setHoverEvent(new HoverEvent(HoverEvent.Action.SHOW_TEXT, new BaseComponent[] { hoverText }));
         base.addExtra(name);
         return new BaseComponent[] { base };
     }
@@ -1295,28 +1306,25 @@ public class DivineBanItem extends JavaPlugin implements Listener {
     }
 
     private ItemStack buildRuleDisplay(BanRule rule) {
-        ItemStack item = ItemKeyUtils.createItemStack(rule.getItemKey(), 1);
-        if (item == null || item.getType() == Material.AIR) {
-            item = new ItemStack(Material.BARRIER);
+        String displayName = MessageService.colorize("&f" + rule.getKey());
+        List<String> lore = new java.util.ArrayList<>();
+        lore.add(MessageService.colorize("&8物品: &7" + rule.getItemKey()));
+        lore.add(MessageService.colorize("&8封禁类型: &7" + formatActionList(rule.getActions())));
+        String reason = rule.getReason() == null || rule.getReason().isBlank() ? "未填写" : rule.getReason();
+        lore.add(MessageService.colorize("&8封禁原因: &7" + reason));
+        BanRule.PurchaseOptions purchase = rule.getPurchase();
+        if (purchase.enabled) {
+            lore.add(MessageService.colorize("&8永久价格: &7" + formatPrice(purchase.price)));
+            if (!purchase.durations.isEmpty()) {
+                lore.add(MessageService.colorize("&8临时价格: &7" + formatDurationPrices(purchase.durations)));
+            }
+        } else {
+            lore.add(MessageService.colorize("&8许可: &7不可购买"));
         }
+        String snbt = rule.getNbtMode() == BanRule.NbtMode.EXACT_SNBT ? rule.getNbtValue() : null;
+        ItemStack item = ItemStackResolver.resolveIcon(rule.getItemKey(), snbt, displayName, lore);
         ItemMeta meta = item.getItemMeta();
         if (meta != null) {
-            meta.setDisplayName(MessageService.colorize("&f" + rule.getKey()));
-            List<String> lore = new java.util.ArrayList<>();
-            lore.add(MessageService.colorize("&8物品: &7" + rule.getItemKey()));
-            lore.add(MessageService.colorize("&8封禁类型: &7" + formatActionList(rule.getActions())));
-            String reason = rule.getReason() == null || rule.getReason().isBlank() ? "未填写" : rule.getReason();
-            lore.add(MessageService.colorize("&8封禁原因: &7" + reason));
-            BanRule.PurchaseOptions purchase = rule.getPurchase();
-            if (purchase.enabled) {
-                lore.add(MessageService.colorize("&8永久价格: &7" + formatPrice(purchase.price)));
-                if (!purchase.durations.isEmpty()) {
-                    lore.add(MessageService.colorize("&8临时价格: &7" + formatDurationPrices(purchase.durations)));
-                }
-            } else {
-                lore.add(MessageService.colorize("&8许可: &7不可购买"));
-            }
-            meta.setLore(lore);
             meta.addItemFlags(org.bukkit.inventory.ItemFlag.HIDE_ATTRIBUTES);
             item.setItemMeta(meta);
         }
